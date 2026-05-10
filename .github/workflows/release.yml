@@ -1,0 +1,134 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+            bin: occ
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            archive: tar.gz
+            bin: occ
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            archive: tar.gz
+            bin: occ
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: zip
+            bin: occ.exe
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Copy npm binary asset
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "dist" | Out-Null
+          if ("${{ matrix.os }}" -eq "windows-latest") {
+            Copy-Item "target/${{ matrix.target }}/release/${{ matrix.bin }}" "dist/occ-${{ matrix.target }}.exe"
+          } else {
+            Copy-Item "target/${{ matrix.target }}/release/${{ matrix.bin }}" "dist/occ-${{ matrix.target }}"
+          }
+
+      - name: Package Unix archive
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          mkdir -p dist/one-code-cli-${{ matrix.target }}
+          cp target/${{ matrix.target }}/release/${{ matrix.bin }} dist/one-code-cli-${{ matrix.target }}/
+          cp README.md dist/one-code-cli-${{ matrix.target }}/
+          tar -C dist -czf dist/one-code-cli-${{ matrix.target }}.tar.gz one-code-cli-${{ matrix.target }}
+
+      - name: Package Windows archive
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "dist/one-code-cli-${{ matrix.target }}" | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.bin }}" "dist/one-code-cli-${{ matrix.target }}/"
+          Copy-Item README.md "dist/one-code-cli-${{ matrix.target }}/"
+          Compress-Archive -Path "dist/one-code-cli-${{ matrix.target }}/*" -DestinationPath "dist/one-code-cli-${{ matrix.target }}.zip" -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: one-code-cli-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/occ-*
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/occ-*
+          generate_release_notes: true
+
+  publish-npm:
+    name: Publish npm package
+    needs: publish
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Verify package contents
+        run: npm pack --dry-run
+
+      - name: Publish to npm
+        run: npm publish --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -1,0 +1,20 @@
+version = 1
+name = "using-one-code-cli"
+title = "Use One Code CLI"
+description = "Protocol for agents to delegate coding tasks through occ and read result documents."
+entry = "SKILL.md"
+requires_command = "occ"
+
+[inputs]
+cwd = "Required working directory for the delegated task."
+prompt_file = "Recommended task prompt file."
+profile = "Optional exact One Code CLI profile."
+backend = "Optional backend type: claude, codex, opencode."
+session = "Optional One Code CLI session id for resume."
+
+[outputs]
+run_id = "One Code CLI run id."
+session_id = "One Code CLI session id."
+result_path = "Path to result.md."
+metadata_path = "Path to run.toml."
+exit_code = "Child CLI exit code when available."

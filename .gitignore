@@ -1,0 +1,8 @@
+/target/
+/node_modules/
+/.occ/
+/.occ-*/
+/npm/bin/occ-native
+/npm/bin/occ-native.exe
+*.tgz
+.DS_Store

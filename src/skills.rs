@@ -1,0 +1,133 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use serde::Serialize;
+
+use crate::error::{OccError, OccResult};
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SkillFile {
+    pub path: &'static str,
+    pub body: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SkillTemplate {
+    pub name: &'static str,
+    pub title: &'static str,
+    pub description: &'static str,
+    pub skill_md: &'static str,
+    pub skill_toml: &'static str,
+    pub files: &'static [SkillFile],
+}
+
+pub fn all() -> &'static [SkillTemplate] {
+    &SKILLS
+}
+
+pub fn get(name: &str) -> Option<&'static SkillTemplate> {
+    all().iter().find(|skill| skill.name == name)
+}
+
+pub fn require(name: &str) -> OccResult<&'static SkillTemplate> {
+    get(name).ok_or_else(|| {
+        OccError::new(
+            "config_not_found",
+            format!("Skill '{}' was not found.", name),
+        )
+    })
+}
+
+pub fn export(name: &str, target: &Path) -> OccResult<PathBuf> {
+    let skill = require(name)?;
+    export_skill(skill, target)
+}
+
+pub fn install(target: &Path) -> OccResult<Vec<PathBuf>> {
+    let mut paths = Vec::new();
+    for skill in all() {
+        paths.push(export_skill(skill, target)?);
+    }
+    Ok(paths)
+}
+
+pub fn doctor(target: &Path) -> OccResult<Vec<String>> {
+    let mut lines = Vec::new();
+    if target.exists() {
+        lines.push(format!("ok target exists: {}", target.display()));
+    } else {
+        lines.push(format!("missing target: {}", target.display()));
+    }
+    match which::which("occ") {
+        Ok(path) => lines.push(format!("ok occ executable: {}", path.display())),
+        Err(_) => lines.push("missing occ executable in PATH".to_string()),
+    }
+    for skill in all() {
+        let dir = target.join(skill.name);
+        let ok = dir.join("SKILL.md").exists() && dir.join("skill.toml").exists();
+        lines.push(format!(
+            "{} {}",
+            if ok { "ok" } else { "missing" },
+            skill.name
+        ));
+    }
+    Ok(lines)
+}
+
+fn export_skill(skill: &SkillTemplate, target: &Path) -> OccResult<PathBuf> {
+    let dir = target.join(skill.name);
+    write_file(&dir.join("SKILL.md"), skill.skill_md)?;
+    write_file(&dir.join("skill.toml"), skill.skill_toml)?;
+    for file in skill.files {
+        write_file(&dir.join(file.path), file.body)?;
+    }
+    Ok(dir)
+}
+
+fn write_file(path: &Path, body: &str) -> OccResult<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            OccError::io(
+                "doc_root_not_writable",
+                format!("Failed to create '{}'", parent.display()),
+                error,
+            )
+        })?;
+    }
+    fs::write(path, body).map_err(|error| {
+        OccError::io(
+            "doc_root_not_writable",
+            format!("Failed to write '{}'", path.display()),
+            error,
+        )
+    })
+}
+
+static USING_ONE_CODE_CLI_FILES: &[SkillFile] = &[
+    SkillFile {
+        path: "examples/run-with-profile.md",
+        body: include_str!("../assets/skills/using-one-code-cli/examples/run-with-profile.md"),
+    },
+    SkillFile {
+        path: "examples/run-with-backend.md",
+        body: include_str!("../assets/skills/using-one-code-cli/examples/run-with-backend.md"),
+    },
+    SkillFile {
+        path: "examples/resume-session.md",
+        body: include_str!("../assets/skills/using-one-code-cli/examples/resume-session.md"),
+    },
+    SkillFile {
+        path: "examples/read-result.md",
+        body: include_str!("../assets/skills/using-one-code-cli/examples/read-result.md"),
+    },
+];
+
+static SKILLS: [SkillTemplate; 1] = [SkillTemplate {
+    name: "using-one-code-cli",
+    title: "Use One Code CLI",
+    description:
+        "Protocol for agents to delegate coding tasks through occ and read result documents.",
+    skill_md: include_str!("../assets/skills/using-one-code-cli/SKILL.md"),
+    skill_toml: include_str!("../assets/skills/using-one-code-cli/skill.toml"),
+    files: USING_ONE_CODE_CLI_FILES,
+}];

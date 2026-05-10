@@ -1,0 +1,46 @@
+{
+  "name": "one-code-cli",
+  "version": "0.1.0",
+  "description": "Unified coding-agent CLI dispatcher",
+  "license": "MIT",
+  "homepage": "https://github.com/xunzhimeng/one-code-cli#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xunzhimeng/one-code-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/xunzhimeng/one-code-cli/issues"
+  },
+  "bin": {
+    "occ": "npm/bin/occ.js"
+  },
+  "files": [
+    "Cargo.toml",
+    "Cargo.lock",
+    "src/",
+    "assets/",
+    "npm/bin/occ.js",
+    "npm/install.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "postinstall": "node npm/install.js",
+    "build": "cargo build --release",
+    "test": "cargo test --all-targets",
+    "pack:check": "npm pack --dry-run"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "cli",
+    "coding-agent",
+    "claude",
+    "codex",
+    "gemini",
+    "opencode"
+  ]
+}
