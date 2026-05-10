@@ -23,9 +23,7 @@
 
 ## 安装
 
-### 方式一：npm 全局安装
-
-发布到 npm 后，用户可以直接安装：
+### 方式一：npm 全局安装（推荐）
 
 ```powershell
 npm install -g one-code-cli
@@ -33,23 +31,22 @@ occ config init --user
 occ config validate
 ```
 
-npm wrapper 会在安装时从 GitHub Release 下载当前 npm 包版本对应的原生二进制，例如 `v0.1.0` 会下载：
+npm 包名为 [`one-code-cli`](https://www.npmjs.com/package/one-code-cli)，安装时会自动从 GitHub Release 下载对应平台的原生二进制（Windows / Linux / macOS Intel / macOS Apple Silicon）。
 
-```text
-https://github.com/xunzhimeng/one-code-cli/releases/download/v0.1.0/occ-<target>
-```
+### 方式二：下载 GitHub Release 二进制
 
-本地测试 npm wrapper：
+到 [Releases](https://github.com/xunzhimeng/one-code-cli/releases) 下载对应平台的压缩包：
 
-```powershell
-npm install -g .
-```
+- Windows：`one-code-cli-x86_64-pc-windows-msvc.zip`
+- Linux：`one-code-cli-x86_64-unknown-linux-gnu.tar.gz`
+- macOS Intel：`one-code-cli-x86_64-apple-darwin.tar.gz`
+- macOS Apple Silicon：`one-code-cli-aarch64-apple-darwin.tar.gz`
 
-如果还没有发布对应 GitHub Release，本地安装会 fallback 到 `cargo build --release`。
+Windows 解压后把 `occ.exe` 所在目录加入 `PATH`。macOS / Linux 解压后把 `occ` 放到 `~/.local/bin`、`/usr/local/bin` 或其它 PATH 目录。
 
-### 方式二：从 GitHub 源码安装
+### 方式三：使用 Cargo 从源码安装
 
-只要仓库已经推到 GitHub，别人有 Rust/Cargo 就能直接安装：
+需要本机有 Rust 工具链：
 
 ```powershell
 cargo install --git https://github.com/xunzhimeng/one-code-cli.git --locked
@@ -57,93 +54,11 @@ occ config init --user
 occ config validate
 ```
 
-安装指定 tag：
+安装指定版本：
 
 ```powershell
 cargo install --git https://github.com/xunzhimeng/one-code-cli.git --tag v0.1.0 --locked
 ```
-
-这是不依赖 npm registry 的公开安装方案。
-
-### 方式三：下载 GitHub Release 二进制
-
-本仓库包含 `.github/workflows/release.yml`。推送 tag 后会构建这些压缩包和 npm wrapper 使用的裸二进制，并发布到 GitHub Releases：
-
-- `one-code-cli-x86_64-pc-windows-msvc.zip`
-- `one-code-cli-x86_64-unknown-linux-gnu.tar.gz`
-- `one-code-cli-x86_64-apple-darwin.tar.gz`
-- `one-code-cli-aarch64-apple-darwin.tar.gz`
-- `occ-x86_64-pc-windows-msvc.exe`
-- `occ-x86_64-unknown-linux-gnu`
-- `occ-x86_64-apple-darwin`
-- `occ-aarch64-apple-darwin`
-
-发布 release：
-
-```powershell
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-Windows 用户下载 zip 后，把 `occ.exe` 所在目录加入 `PATH`。
-
-macOS/Linux 用户下载 tar.gz 后，把 `occ` 放到 `~/.local/bin`、`/usr/local/bin` 或其它 PATH 目录。
-
-### 方式四：本地开发安装
-
-```powershell
-cargo install --path . --force
-occ config init --user --force
-occ config validate
-```
-
-### npm 发布状态
-
-npm wrapper 和 `package.json` 已经实现，但还没有发布到 npm registry。
-
-真正发布 npm 需要：
-
-- npm 账号
-- 本地执行 `npm login`
-- 包名 `one-code-cli` 在 npm 上可用，或改成 scope 包名，例如 `@xunzhimeng/one-code-cli`
-- 已经发布同版本 GitHub Release，例如 npm `0.1.0` 对应 GitHub tag `v0.1.0`
-- 如果用 GitHub Actions 发布，需要在仓库 Secrets 配置 `NPM_TOKEN`
-
-发布命令：
-
-```powershell
-npm publish
-```
-
-如果使用 scope 包名：
-
-```powershell
-npm publish --access public
-```
-
-Tag release 会通过 `.github/workflows/release.yml` 自动发布 npm。也可以通过 `.github/workflows/npm-publish.yml` 手动补发；这种方式不需要本机 `npm login`，但仍然需要 npm 账号和 `NPM_TOKEN`。
-
-## GitHub Actions
-
-已包含两个 workflow：
-
-- **CI**：`.github/workflows/ci.yml`
-  - `cargo fmt --all -- --check`
-  - `cargo check --all-targets`
-  - `cargo test --all-targets`
-  - 覆盖 Ubuntu、macOS、Windows
-
-- **Release**：`.github/workflows/release.yml`
-  - 在 `v*` tag 上构建 release binary
-  - 上传 Windows/Linux/macOS 压缩包
-  - 上传 npm wrapper 下载用的裸二进制
-  - 自动创建 GitHub Release
-  - GitHub Release 完成后发布 npm package
-
-- **Publish npm**：`.github/workflows/npm-publish.yml`
-  - 手动 `workflow_dispatch` 触发
-  - 作为 npm 发布备用入口
-  - 需要在 GitHub 仓库 Secrets 中配置 `NPM_TOKEN`
 
 ## Star History
 
@@ -365,9 +280,7 @@ enabled = false
 
 ## Installation
 
-### Option 1: Install globally with npm
-
-After the npm package is published:
+### Option 1: Install globally with npm (recommended)
 
 ```powershell
 npm install -g one-code-cli
@@ -375,23 +288,22 @@ occ config init --user
 occ config validate
 ```
 
-The npm wrapper downloads the native binary for the current package version from GitHub Releases. For example, npm package `0.1.0` downloads from tag `v0.1.0`:
+The package is published as [`one-code-cli`](https://www.npmjs.com/package/one-code-cli). The install script downloads the matching native binary for your platform (Windows / Linux / macOS Intel / macOS Apple Silicon) from GitHub Releases.
 
-```text
-https://github.com/xunzhimeng/one-code-cli/releases/download/v0.1.0/occ-<target>
-```
+### Option 2: Download GitHub Release binaries
 
-Test the npm wrapper locally:
+Go to [Releases](https://github.com/xunzhimeng/one-code-cli/releases) and download the archive for your platform:
 
-```powershell
-npm install -g .
-```
+- Windows: `one-code-cli-x86_64-pc-windows-msvc.zip`
+- Linux: `one-code-cli-x86_64-unknown-linux-gnu.tar.gz`
+- macOS Intel: `one-code-cli-x86_64-apple-darwin.tar.gz`
+- macOS Apple Silicon: `one-code-cli-aarch64-apple-darwin.tar.gz`
 
-If the matching GitHub Release does not exist yet, local installation falls back to `cargo build --release`.
+Extract the archive and put `occ` / `occ.exe` on your `PATH`.
 
-### Option 2: Install from GitHub source
+### Option 3: Install from source with Cargo
 
-Once this repository is public on GitHub:
+Requires a local Rust toolchain:
 
 ```powershell
 cargo install --git https://github.com/xunzhimeng/one-code-cli.git --locked
@@ -404,72 +316,6 @@ Install a specific tag:
 ```powershell
 cargo install --git https://github.com/xunzhimeng/one-code-cli.git --tag v0.1.0 --locked
 ```
-
-This public installation path does not depend on npm registry.
-
-### Option 3: Download GitHub Release binaries
-
-The release workflow builds archives and raw binaries used by the npm wrapper:
-
-- `one-code-cli-x86_64-pc-windows-msvc.zip`
-- `one-code-cli-x86_64-unknown-linux-gnu.tar.gz`
-- `one-code-cli-x86_64-apple-darwin.tar.gz`
-- `one-code-cli-aarch64-apple-darwin.tar.gz`
-- `occ-x86_64-pc-windows-msvc.exe`
-- `occ-x86_64-unknown-linux-gnu`
-- `occ-x86_64-apple-darwin`
-- `occ-aarch64-apple-darwin`
-
-Create a release:
-
-```powershell
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-Download the matching archive from GitHub Releases and put `occ` / `occ.exe` on your `PATH`.
-
-### Option 4: Local development install
-
-```powershell
-cargo install --path . --force
-occ config init --user --force
-occ config validate
-```
-
-### npm publish status
-
-The npm wrapper and `package.json` are implemented, but the package has not been published to npm registry yet.
-
-Publishing to npm requires:
-
-- An npm account
-- `npm login`
-- The package name `one-code-cli` to be available, or a scoped name such as `@xunzhimeng/one-code-cli`
-- A matching GitHub Release for the same version, for example npm `0.1.0` and GitHub tag `v0.1.0`
-- `NPM_TOKEN` in repository Secrets if publishing through GitHub Actions
-
-Publish:
-
-```powershell
-npm publish
-```
-
-For a scoped public package:
-
-```powershell
-npm publish --access public
-```
-
-Tag releases publish npm through `.github/workflows/release.yml`. You can also publish manually through `.github/workflows/npm-publish.yml`; that path does not require local `npm login`, but still requires an npm account and `NPM_TOKEN`.
-
-## GitHub Actions
-
-This repository includes:
-
-- **CI**: `.github/workflows/ci.yml`
-- **Release**: `.github/workflows/release.yml`
-- **Publish npm**: `.github/workflows/npm-publish.yml`
 
 ## Quick setup for AI agents
 
