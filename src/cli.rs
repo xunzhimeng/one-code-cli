@@ -30,6 +30,8 @@ impl Cli {
 #[derive(Debug, Subcommand)]
 pub enum Commands {
     Run(RunArgs),
+    #[command(alias = "chat")]
+    Vibe(VibeArgs),
     Doctor,
     Profiles(ProfilesArgs),
     Backends(BackendsArgs),
@@ -85,6 +87,51 @@ pub struct RunArgs {
 
     #[arg(long)]
     pub dry_run: bool,
+
+    #[arg(last = true)]
+    pub child_args: Vec<String>,
+}
+
+#[derive(Debug, Args, Clone)]
+pub struct VibeArgs {
+    #[arg(long)]
+    pub profile: Option<String>,
+
+    #[arg(long)]
+    pub backend: Option<String>,
+
+    #[arg(long)]
+    pub model: Option<String>,
+
+    #[arg(long)]
+    pub cwd: Option<PathBuf>,
+
+    #[arg(long)]
+    pub prompt: Option<String>,
+
+    #[arg(long)]
+    pub prompt_file: Option<PathBuf>,
+
+    #[arg(long)]
+    pub stdin: bool,
+
+    #[arg(long)]
+    pub session: Option<String>,
+
+    #[arg(long)]
+    pub resume: bool,
+
+    #[arg(long)]
+    pub doc_root: Option<PathBuf>,
+
+    #[arg(long)]
+    pub timeout: Option<String>,
+
+    #[arg(long)]
+    pub dry_run: bool,
+
+    #[arg(long)]
+    pub no_transcript: bool,
 
     #[arg(last = true)]
     pub child_args: Vec<String>,
@@ -151,7 +198,20 @@ pub enum ConfigCommand {
     ExportHtml {
         #[arg(long)]
         output: Option<PathBuf>,
+
+        #[arg(long, value_enum, default_value_t = ConfigTarget::Loaded)]
+        target: ConfigTarget,
+
+        #[arg(long)]
+        open: bool,
     },
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, ValueEnum)]
+pub enum ConfigTarget {
+    User,
+    Project,
+    Loaded,
 }
 
 #[derive(Debug, Args)]

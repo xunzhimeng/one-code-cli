@@ -5,6 +5,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{OccError, OccResult};
+use crate::output;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunRecord {
@@ -13,9 +14,11 @@ pub struct RunRecord {
     pub profile: String,
     pub backend: String,
     pub model: Option<String>,
+    pub model_source: String,
     pub cwd: PathBuf,
     pub prompt_source: String,
     pub interactive: bool,
+    pub timeout: Option<String>,
     pub success: bool,
     pub exit_code: Option<i32>,
     pub started_at: DateTime<Utc>,
@@ -66,7 +69,7 @@ pub fn list(doc_root: &Path, limit: usize) -> OccResult<Vec<RunIndexEntry>> {
     let text = fs::read_to_string(&path).map_err(|error| {
         OccError::io(
             "config_parse_failed",
-            format!("Failed to read '{}'", path.display()),
+            format!("Failed to read '{}'", output::display_path(&path)),
             error,
         )
     })?;
@@ -92,7 +95,7 @@ pub fn append_json_line<T: Serialize>(path: &Path, value: &T) -> OccResult<()> {
         fs::create_dir_all(parent).map_err(|error| {
             OccError::io(
                 "doc_root_not_writable",
-                format!("Failed to create '{}'", parent.display()),
+                format!("Failed to create '{}'", output::display_path(parent)),
                 error,
             )
         })?;
@@ -110,7 +113,7 @@ pub fn append_json_line<T: Serialize>(path: &Path, value: &T) -> OccResult<()> {
         .map_err(|error| {
             OccError::io(
                 "doc_root_not_writable",
-                format!("Failed to open '{}'", path.display()),
+                format!("Failed to open '{}'", output::display_path(path)),
                 error,
             )
         })?;
@@ -118,7 +121,7 @@ pub fn append_json_line<T: Serialize>(path: &Path, value: &T) -> OccResult<()> {
     writeln!(file, "{}", line).map_err(|error| {
         OccError::io(
             "doc_root_not_writable",
-            format!("Failed to write '{}'", path.display()),
+            format!("Failed to write '{}'", output::display_path(path)),
             error,
         )
     })

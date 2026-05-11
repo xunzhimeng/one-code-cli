@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use crate::error::{OccError, OccResult};
+use crate::output;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SkillFile {
@@ -54,12 +55,18 @@ pub fn install(target: &Path) -> OccResult<Vec<PathBuf>> {
 pub fn doctor(target: &Path) -> OccResult<Vec<String>> {
     let mut lines = Vec::new();
     if target.exists() {
-        lines.push(format!("ok target exists: {}", target.display()));
+        lines.push(format!(
+            "ok target exists: {}",
+            output::display_path(target)
+        ));
     } else {
-        lines.push(format!("missing target: {}", target.display()));
+        lines.push(format!("missing target: {}", output::display_path(target)));
     }
     match which::which("occ") {
-        Ok(path) => lines.push(format!("ok occ executable: {}", path.display())),
+        Ok(path) => lines.push(format!(
+            "ok occ executable: {}",
+            output::display_path(&path)
+        )),
         Err(_) => lines.push("missing occ executable in PATH".to_string()),
     }
     for skill in all() {
@@ -89,7 +96,7 @@ fn write_file(path: &Path, body: &str) -> OccResult<()> {
         fs::create_dir_all(parent).map_err(|error| {
             OccError::io(
                 "doc_root_not_writable",
-                format!("Failed to create '{}'", parent.display()),
+                format!("Failed to create '{}'", output::display_path(parent)),
                 error,
             )
         })?;
@@ -97,7 +104,7 @@ fn write_file(path: &Path, body: &str) -> OccResult<()> {
     fs::write(path, body).map_err(|error| {
         OccError::io(
             "doc_root_not_writable",
-            format!("Failed to write '{}'", path.display()),
+            format!("Failed to write '{}'", output::display_path(path)),
             error,
         )
     })

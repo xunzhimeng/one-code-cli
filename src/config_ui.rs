@@ -1,25 +1,55 @@
 use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::config::ConfigFile;
 use crate::error::{OccError, OccResult};
+use crate::output;
+use serde::Serialize;
+
+#[derive(Debug, Serialize)]
+pub struct ConfigHtmlMetadata {
+    pub cwd: PathBuf,
+    pub target: String,
+    pub recommended_path: PathBuf,
+    pub loaded_paths: Vec<PathBuf>,
+    pub search_paths: Vec<PathBuf>,
+    pub doc_root: PathBuf,
+    pub default_profile: Option<String>,
+    pub init_command: String,
+}
 
 pub fn write_html(path: &Path, initial_toml: &str) -> OccResult<()> {
+    write_html_with_metadata(path, initial_toml, None)
+}
+
+pub fn write_static_html(
+    path: &Path,
+    initial_toml: &str,
+    metadata: &ConfigHtmlMetadata,
+) -> OccResult<()> {
+    write_html_with_metadata(path, initial_toml, Some(metadata))
+}
+
+fn write_html_with_metadata(
+    path: &Path,
+    initial_toml: &str,
+    metadata: Option<&ConfigHtmlMetadata>,
+) -> OccResult<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| {
             OccError::io(
                 "doc_root_not_writable",
-                format!("Failed to create '{}'", parent.display()),
+                format!("Failed to create '{}'", output::display_path(parent)),
                 error,
             )
         })?;
     }
-    fs::write(path, html(initial_toml)).map_err(|error| {
+    fs::write(path, html_with_metadata(initial_toml, metadata)).map_err(|error| {
         OccError::io(
             "doc_root_not_writable",
-            format!("Failed to write '{}'", path.display()),
+            format!("Failed to write '{}'", output::display_path(path)),
             error,
         )
     })
@@ -42,7 +72,7 @@ pub fn serve(initial_toml: &str, save_path: &Path) -> OccResult<()> {
     })?;
     let url = format!("http://{}/", address);
     println!("ui: {}", url);
-    println!("config: {}", save_path.display());
+    println!("config: {}", output::display_path(save_path));
     let _ = open::that(&url);
     for stream in listener.incoming() {
         let stream = stream.map_err(|error| {
@@ -59,11 +89,15 @@ pub fn serve(initial_toml: &str, save_path: &Path) -> OccResult<()> {
     Ok(())
 }
 
-pub fn html(initial_toml: &str) -> String {
-    html_with_save_path(initial_toml, None)
+fn html_with_metadata(initial_toml: &str, metadata: Option<&ConfigHtmlMetadata>) -> String {
+    html_with_save_path(initial_toml, None, metadata)
 }
 
-fn html_with_save_path(initial_toml: &str, save_path: Option<&Path>) -> String {
+fn html_with_save_path(
+    initial_toml: &str,
+    save_path: Option<&Path>,
+    metadata: Option<&ConfigHtmlMetadata>,
+) -> String {
     let save_button = if save_path.is_some() {
         r#"<button id="save-config">Save to Config File</button>"#
     } else {
@@ -78,14 +112,26 @@ fn html_with_save_path(initial_toml: &str, save_path: Option<&Path>) -> String {
         .map(|path| {
             format!(
                 "<p>Saving target: <code>{}</code></p>",
-                escape_html(&path.display().to_string())
+                escape_html(&output::display_path(path))
             )
         })
         .unwrap_or_default();
     let intro_text = if save_path.is_some() {
         "Edit TOML, then save it through the local server, copy it, download it, or save it with browsers that support the File System Access API."
     } else {
-        "Edit TOML, then copy it, download it, or save it with browsers that support the File System Access API."
+        "Edit TOML, then open a config file, save to an authorized file, copy it, or download it. Browsers cannot silently write local config files."
+    };
+    let metadata_json = metadata
+        .and_then(|metadata| serde_json::to_string(metadata).ok())
+        .unwrap_or_else(|| "null".to_string());
+    let metadata_block = metadata.map(render_metadata).unwrap_or_default();
+    let static_buttons = if save_path.is_none() {
+        r#"<button id="open-file" class="secondary">Open Config File</button>
+<button id="save-opened" class="secondary">Save to Opened File</button>
+<button id="copy-path" class="secondary">Copy Recommended Path</button>
+<button id="copy-init" class="secondary">Copy Init Command</button>"#
+    } else {
+        ""
     };
     format!(
         r#"<!doctype html>
@@ -102,6 +148,7 @@ main {{ max-width: 1120px; margin: 0 auto; padding: 40px 24px; }}
 h1 {{ margin: 0 0 8px; font-size: 32px; }}
 p {{ color: #94a3b8; }}
 code {{ color: #bae6fd; }}
+pre {{ overflow: auto; background: #020617; border: 1px solid #334155; border-radius: 12px; padding: 12px; }}
 textarea {{ width: 100%; min-height: 560px; box-sizing: border-box; border-radius: 14px; border: 1px solid #475569; background: #020617; color: #e2e8f0; padding: 16px; font: 14px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }}
 .actions {{ display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; }}
 button {{ border: 0; border-radius: 999px; padding: 10px 16px; cursor: pointer; background: #38bdf8; color: #082f49; font-weight: 700; }}
@@ -115,7 +162,9 @@ button.secondary {{ background: #334155; color: #e2e8f0; }}
 <h1>One Code CLI Config</h1>
 <p>{}</p>
 {}
+{}
 <div class="actions">
+{}
 {}
 <button id="copy">Copy TOML</button>
 <button id="download" class="secondary">Download TOML</button>
@@ -127,16 +176,47 @@ button.secondary {{ background: #334155; color: #e2e8f0; }}
 </section>
 </main>
 <script>
+const metadata = {};
 const textarea = document.getElementById('toml');
 const status = document.getElementById('status');
+let openedFileHandle = null;
 function setStatus(text) {{ status.textContent = text; setTimeout(() => status.textContent = '', 4000); }}
+function validateTomlText() {{
+  const text = textarea.value.trim();
+  if (!text) {{ setStatus('Config TOML is empty.'); return false; }}
+  if (!text.includes('version') && !text.includes('[[profiles]]')) {{ setStatus('Config should contain version or profiles. Run occ config validate after saving.'); }}
+  return true;
+}}
 const saveConfig = document.getElementById('save-config');
 if (saveConfig) {{
   saveConfig.addEventListener('click', async () => {{
+    if (!validateTomlText()) return;
     const response = await fetch('/config', {{ method: 'POST', headers: {{ 'Content-Type': 'text/plain; charset=utf-8' }}, body: textarea.value }});
     const text = await response.text();
     if (!response.ok) {{ setStatus(text); return; }}
     setStatus(text);
+  }});
+}}
+const openFile = document.getElementById('open-file');
+if (openFile) {{
+  openFile.addEventListener('click', async () => {{
+    if (!window.showOpenFilePicker) {{ setStatus('File System Access API is not available in this browser. Use copy or download instead.'); return; }}
+    const [handle] = await window.showOpenFilePicker({{ types: [{{ description: 'TOML', accept: {{ 'application/toml': ['.toml'] }} }}] }});
+    const file = await handle.getFile();
+    textarea.value = await file.text();
+    openedFileHandle = handle;
+    setStatus('Opened ' + file.name + '.');
+  }});
+}}
+const saveOpened = document.getElementById('save-opened');
+if (saveOpened) {{
+  saveOpened.addEventListener('click', async () => {{
+    if (!openedFileHandle) {{ setStatus('Open a config file first.'); return; }}
+    if (!validateTomlText()) return;
+    const writable = await openedFileHandle.createWritable();
+    await writable.write(textarea.value);
+    await writable.close();
+    setStatus('Saved to opened file. Run occ config validate to verify.');
   }});
 }}
 document.getElementById('copy').addEventListener('click', async () => {{
@@ -144,6 +224,7 @@ document.getElementById('copy').addEventListener('click', async () => {{
   setStatus('Copied TOML to clipboard.');
 }});
 document.getElementById('download').addEventListener('click', () => {{
+  if (!validateTomlText()) return;
   const blob = new Blob([textarea.value], {{ type: 'application/toml' }});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -155,12 +236,27 @@ document.getElementById('download').addEventListener('click', () => {{
 }});
 document.getElementById('save').addEventListener('click', async () => {{
   if (!window.showSaveFilePicker) {{ setStatus('File System Access API is not available in this browser.'); return; }}
+  if (!validateTomlText()) return;
   const handle = await window.showSaveFilePicker({{ suggestedName: 'config.toml', types: [{{ description: 'TOML', accept: {{ 'application/toml': ['.toml'] }} }}] }});
   const writable = await handle.createWritable();
   await writable.write(textarea.value);
   await writable.close();
   setStatus('Saved TOML.');
 }});
+const copyPath = document.getElementById('copy-path');
+if (copyPath) {{
+  copyPath.addEventListener('click', async () => {{
+    await navigator.clipboard.writeText(metadata?.recommended_path || '');
+    setStatus('Copied recommended path.');
+  }});
+}}
+const copyInit = document.getElementById('copy-init');
+if (copyInit) {{
+  copyInit.addEventListener('click', async () => {{
+    await navigator.clipboard.writeText(metadata?.init_command || 'occ config init --user');
+    setStatus('Copied init command.');
+  }});
+}}
 const closeServer = document.getElementById('close-server');
 if (closeServer) {{
   closeServer.addEventListener('click', async () => {{
@@ -174,10 +270,48 @@ if (closeServer) {{
 "#,
         intro_text,
         save_path_text,
+        metadata_block,
         save_button,
+        static_buttons,
         close_button,
-        escape_html(initial_toml)
+        escape_html(initial_toml),
+        metadata_json
     )
+}
+
+fn render_metadata(metadata: &ConfigHtmlMetadata) -> String {
+    let loaded_paths = path_list(&metadata.loaded_paths);
+    let search_paths = path_list(&metadata.search_paths);
+    format!(
+        r#"<div class="metadata">
+<p>Recommended target (<code>{}</code>): <code>{}</code></p>
+<p>Current cwd: <code>{}</code></p>
+<p>doc_root: <code>{}</code></p>
+<p>default_profile: <code>{}</code></p>
+<p>Loaded config paths:</p>
+<pre>{}</pre>
+<p>Search paths:</p>
+<pre>{}</pre>
+</div>"#,
+        escape_html(&metadata.target),
+        escape_html(&output::display_path(&metadata.recommended_path)),
+        escape_html(&output::display_path(&metadata.cwd)),
+        escape_html(&output::display_path(&metadata.doc_root)),
+        escape_html(metadata.default_profile.as_deref().unwrap_or("")),
+        escape_html(&loaded_paths),
+        escape_html(&search_paths),
+    )
+}
+
+fn path_list(paths: &[PathBuf]) -> String {
+    if paths.is_empty() {
+        return "(none)".to_string();
+    }
+    paths
+        .iter()
+        .map(|path| output::display_path(path))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn handle_connection(
@@ -199,7 +333,7 @@ fn handle_connection(
     let first_line = headers.lines().next().unwrap_or("");
     let body = &request[header_end..];
     if first_line.starts_with("GET / ") || first_line.starts_with("GET /index.html ") {
-        let page = html_with_save_path(initial_toml, Some(save_path));
+        let page = html_with_save_path(initial_toml, Some(save_path), None);
         write_response(&mut stream, "200 OK", "text/html; charset=utf-8", &page)?;
         return Ok(false);
     }
@@ -218,7 +352,7 @@ fn handle_connection(
             fs::create_dir_all(parent).map_err(|error| {
                 OccError::io(
                     "doc_root_not_writable",
-                    format!("Failed to create '{}'", parent.display()),
+                    format!("Failed to create '{}'", output::display_path(parent)),
                     error,
                 )
             })?;
@@ -226,7 +360,7 @@ fn handle_connection(
         fs::write(save_path, text).map_err(|error| {
             OccError::io(
                 "doc_root_not_writable",
-                format!("Failed to write '{}'", save_path.display()),
+                format!("Failed to write '{}'", output::display_path(save_path)),
                 error,
             )
         })?;

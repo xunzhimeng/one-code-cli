@@ -6,6 +6,7 @@ use directories::BaseDirs;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{OccError, OccResult};
+use crate::output;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -27,6 +28,8 @@ pub enum PromptVia {
     Stdin,
     Arg,
     File,
+    FileIndirection,
+    ArgOrFileIndirection,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,13 +49,21 @@ impl Default for ProxyConfig {
     }
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TimeoutsConfig {
+    pub default_run: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Profile {
     pub name: String,
+    #[serde(default)]
+    pub aliases: Vec<String>,
     pub backend: String,
     pub command: Option<String>,
     pub path: Option<PathBuf>,
     pub model: Option<String>,
+    pub default_timeout: Option<String>,
     pub config_dir: Option<PathBuf>,
     #[serde(default)]
     pub env: BTreeMap<String, String>,
@@ -79,8 +90,11 @@ pub struct ConfigFile {
     pub default_profile: Option<String>,
     pub doc_root: Option<PathBuf>,
     pub proxy: Option<ProxyConfig>,
+    pub timeouts: Option<TimeoutsConfig>,
     #[serde(default)]
     pub backend_defaults: BTreeMap<String, String>,
+    #[serde(default)]
+    pub backend_aliases: BTreeMap<String, String>,
     #[serde(default)]
     pub profiles: Vec<Profile>,
 }
@@ -91,7 +105,9 @@ pub struct EffectiveConfig {
     pub default_profile: Option<String>,
     pub doc_root: PathBuf,
     pub proxy: ProxyConfig,
+    pub timeouts: TimeoutsConfig,
     pub backend_defaults: BTreeMap<String, String>,
+    pub backend_aliases: BTreeMap<String, String>,
     pub profiles: Vec<Profile>,
     pub loaded_paths: Vec<PathBuf>,
     pub search_paths: Vec<PathBuf>,
@@ -99,7 +115,9 @@ pub struct EffectiveConfig {
 
 impl EffectiveConfig {
     pub fn profile(&self, name: &str) -> Option<&Profile> {
-        self.profiles.iter().find(|profile| profile.name == name)
+        self.profiles.iter().find(|profile| {
+            profile.name == name || profile.aliases.iter().any(|alias| alias == name)
+        })
     }
 
     pub fn profiles_for_backend<'a>(
@@ -126,6 +144,11 @@ impl EffectiveConfig {
         }
 
         if let Some(backend_name) = backend {
+            let backend_name = self
+                .backend_aliases
+                .get(backend_name)
+                .map(String::as_str)
+                .unwrap_or(backend_name);
             if let Some(default_profile) = self.backend_defaults.get(backend_name) {
                 return self.profile(default_profile).cloned().ok_or_else(|| {
                     OccError::new(
@@ -183,7 +206,10 @@ pub fn load(config_arg: Option<&PathBuf>, cwd: &Path) -> OccResult<EffectiveConf
         if !path.exists() {
             return Err(OccError::new(
                 "config_not_found",
-                format!("Config file '{}' was not found.", path.display()),
+                format!(
+                    "Config file '{}' was not found.",
+                    output::display_path(path)
+                ),
             ));
         }
         vec![path.clone()]
@@ -200,14 +226,18 @@ pub fn load(config_arg: Option<&PathBuf>, cwd: &Path) -> OccResult<EffectiveConf
         let text = fs::read_to_string(path).map_err(|error| {
             OccError::io(
                 "config_parse_failed",
-                format!("Failed to read '{}'", path.display()),
+                format!("Failed to read '{}'", output::display_path(path)),
                 error,
             )
         })?;
         let mut config: ConfigFile = toml::from_str(&text).map_err(|error| {
             OccError::new(
                 "config_parse_failed",
-                format!("Failed to parse '{}': {}", path.display(), error),
+                format!(
+                    "Failed to parse '{}': {}",
+                    output::display_path(path),
+                    error
+                ),
             )
         })?;
         normalize_profiles(&mut config.profiles);
@@ -218,7 +248,9 @@ pub fn load(config_arg: Option<&PathBuf>, cwd: &Path) -> OccResult<EffectiveConf
     let mut default_profile = None;
     let mut doc_root = PathBuf::from(".occ");
     let mut proxy = ProxyConfig::default();
+    let mut timeouts = TimeoutsConfig::default();
     let mut backend_defaults = BTreeMap::new();
+    let mut backend_aliases = BTreeMap::new();
 
     for (_, config) in &parsed {
         if let Some(value) = config.version {
@@ -233,7 +265,11 @@ pub fn load(config_arg: Option<&PathBuf>, cwd: &Path) -> OccResult<EffectiveConf
         if let Some(value) = &config.proxy {
             proxy = value.clone();
         }
+        if let Some(value) = &config.timeouts {
+            timeouts = value.clone();
+        }
         backend_defaults.extend(config.backend_defaults.clone());
+        backend_aliases.extend(config.backend_aliases.clone());
     }
 
     let mut seen = BTreeSet::new();
@@ -256,7 +292,9 @@ pub fn load(config_arg: Option<&PathBuf>, cwd: &Path) -> OccResult<EffectiveConf
         default_profile,
         doc_root,
         proxy,
+        timeouts,
         backend_defaults,
+        backend_aliases,
         profiles,
         loaded_paths: parsed.into_iter().map(|(path, _)| path).collect(),
         search_paths,
@@ -292,7 +330,7 @@ pub fn write_sample_config(path: &Path, force: bool) -> OccResult<()> {
             "config_parse_failed",
             format!(
                 "Config file '{}' already exists. Use --force to overwrite it.",
-                path.display()
+                output::display_path(path)
             ),
         ));
     }
@@ -301,7 +339,7 @@ pub fn write_sample_config(path: &Path, force: bool) -> OccResult<()> {
         fs::create_dir_all(parent).map_err(|error| {
             OccError::io(
                 "doc_root_not_writable",
-                format!("Failed to create '{}'", parent.display()),
+                format!("Failed to create '{}'", output::display_path(parent)),
                 error,
             )
         })?;
@@ -310,7 +348,7 @@ pub fn write_sample_config(path: &Path, force: bool) -> OccResult<()> {
     fs::write(path, sample_config_toml()).map_err(|error| {
         OccError::io(
             "doc_root_not_writable",
-            format!("Failed to write '{}'", path.display()),
+            format!("Failed to write '{}'", output::display_path(path)),
             error,
         )
     })
@@ -326,11 +364,20 @@ doc_root = ".occ"
 enabled = true
 env_keys = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"]
 
+[timeouts]
+default_run = "none"
+
 [backend_defaults]
 claude = "claude"
 codex = "codex"
 opencode = "opencode"
 gemini = "gemini"
+
+[backend_aliases]
+c = "claude"
+x = "codex"
+o = "opencode"
+g = "gemini"
 
 [[profiles]]
 name = "claude"
@@ -355,6 +402,7 @@ name = "opencode"
 backend = "opencode"
 command = "{}"
 args_strategy = "builtin"
+prompt_via = "arg-or-file-indirection"
 non_interactive_args = ["run", "--dangerously-skip-permissions"]
 
 [[profiles]]
@@ -362,6 +410,7 @@ name = "gemini"
 backend = "gemini"
 command = "{}"
 args_strategy = "builtin"
+prompt_via = "arg-or-file-indirection"
 non_interactive_args = ["--yolo", "--skip-trust", "-p"]
 interactive_args = ["--yolo", "--skip-trust"]
 "#,
@@ -378,7 +427,9 @@ pub fn editable_config_toml(config: &EffectiveConfig) -> OccResult<String> {
         default_profile: config.default_profile.clone(),
         doc_root: Some(config.doc_root.clone()),
         proxy: Some(config.proxy.clone()),
+        timeouts: Some(config.timeouts.clone()),
         backend_defaults: config.backend_defaults.clone(),
+        backend_aliases: config.backend_aliases.clone(),
         profiles: config.profiles.clone(),
     };
     toml::to_string_pretty(&file).map_err(|error| {
@@ -393,10 +444,12 @@ pub fn builtin_profiles() -> Vec<Profile> {
     vec![
         Profile {
             name: "claude".to_string(),
+            aliases: Vec::new(),
             backend: "claude".to_string(),
             command: Some(default_command_name("claude").to_string()),
             path: None,
             model: None,
+            default_timeout: None,
             config_dir: None,
             env: BTreeMap::new(),
             args_strategy: ArgsStrategy::Builtin,
@@ -410,10 +463,12 @@ pub fn builtin_profiles() -> Vec<Profile> {
         },
         Profile {
             name: "codex".to_string(),
+            aliases: Vec::new(),
             backend: "codex".to_string(),
             command: Some(default_command_name("codex").to_string()),
             path: None,
             model: None,
+            default_timeout: None,
             config_dir: None,
             env: BTreeMap::new(),
             args_strategy: ArgsStrategy::Builtin,
@@ -427,10 +482,12 @@ pub fn builtin_profiles() -> Vec<Profile> {
         },
         Profile {
             name: "opencode".to_string(),
+            aliases: Vec::new(),
             backend: "opencode".to_string(),
             command: Some(default_command_name("opencode").to_string()),
             path: None,
             model: None,
+            default_timeout: None,
             config_dir: None,
             env: BTreeMap::new(),
             args_strategy: ArgsStrategy::Builtin,
@@ -444,10 +501,12 @@ pub fn builtin_profiles() -> Vec<Profile> {
         },
         Profile {
             name: "gemini".to_string(),
+            aliases: Vec::new(),
             backend: "gemini".to_string(),
             command: Some(default_command_name("gemini").to_string()),
             path: None,
             model: None,
+            default_timeout: None,
             config_dir: None,
             env: BTreeMap::new(),
             args_strategy: ArgsStrategy::Builtin,

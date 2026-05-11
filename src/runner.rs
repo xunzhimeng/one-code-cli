@@ -1,8 +1,9 @@
 use std::env;
-use std::fs;
+use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
+use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use chrono::Utc;
@@ -15,7 +16,7 @@ use crate::config::{self, EffectiveConfig, Profile, ProxyConfig};
 use crate::documents::{self, RunPaths};
 use crate::error::{OccError, OccResult};
 use crate::ids;
-use crate::output::{print_run_response, ErrorBody, RunResponse};
+use crate::output::{self, print_run_response, ErrorBody, RunResponse};
 use crate::run_record::{self, RunRecord};
 use crate::session::{self, SessionRecord};
 
@@ -34,8 +35,16 @@ struct ChildResult {
     timed_out: bool,
 }
 
+struct StreamReader {
+    name: &'static str,
+    handle: Option<JoinHandle<std::io::Result<Vec<u8>>>>,
+}
+
 pub fn run(config_arg: Option<&PathBuf>, args: RunArgs) -> OccResult<()> {
-    execute_run(config_arg, args)
+    if let Some(execution) = execute_run(config_arg, args)? {
+        print_run_response(execution.output_mode, &execution.body)?;
+    }
+    Ok(())
 }
 
 pub fn resume_session(config_arg: Option<&PathBuf>, args: SessionResumeArgs) -> OccResult<()> {
@@ -57,10 +66,22 @@ pub fn resume_session(config_arg: Option<&PathBuf>, args: SessionResumeArgs) -> 
         dry_run: args.dry_run,
         child_args: args.child_args,
     };
-    execute_run(config_arg, run_args)
+    run(config_arg, run_args)
 }
 
-fn execute_run(config_arg: Option<&PathBuf>, args: RunArgs) -> OccResult<()> {
+#[derive(Debug)]
+pub struct RunExecution {
+    pub body: RunResponse,
+    pub output_mode: OutputMode,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+pub fn run_once(config_arg: Option<&PathBuf>, args: RunArgs) -> OccResult<Option<RunExecution>> {
+    execute_run(config_arg, args)
+}
+
+fn execute_run(config_arg: Option<&PathBuf>, args: RunArgs) -> OccResult<Option<RunExecution>> {
     if args.interactive && args.non_interactive {
         return Err(OccError::new(
             "child_process_failed",
@@ -120,23 +141,16 @@ fn execute_run(config_arg: Option<&PathBuf>, args: RunArgs) -> OccResult<()> {
                 format!(
                     "No latest session was found for profile '{}' and cwd '{}'.",
                     profile.name,
-                    cwd.display()
+                    output::display_path(&cwd)
                 ),
             )
         })?;
-        existing_session = Some(session::load_from_path(&latest.session_path)?);
+        existing_session = Some(session::load_by_id(&doc_root, &latest.session_id)?);
     }
 
-    let model = args
-        .model
-        .clone()
-        .or_else(|| {
-            existing_session
-                .as_ref()
-                .and_then(|session| session.model.clone())
-        })
-        .or_else(|| profile.model.clone());
+    let (model, model_source) = resolve_model(&args, existing_session.as_ref(), &profile);
     let run_id = ids::run_id();
+    let paths = RunPaths::new(&doc_root, &run_id);
     let now = Utc::now();
     let mut session_record = existing_session.unwrap_or_else(|| {
         SessionRecord::new(
@@ -160,6 +174,7 @@ fn execute_run(config_arg: Option<&PathBuf>, args: RunArgs) -> OccResult<()> {
         cwd: cwd.clone(),
         prompt: prompt.text.clone(),
         prompt_file: prompt.file.clone(),
+        prompt_indirection_file: prompt.text.as_ref().map(|_| paths.prompt_md.clone()),
         config_dir: profile.config_dir.clone(),
         session_id: session_record.session_id.clone(),
         backend_session_id: session_record.backend_session_id.clone(),
@@ -174,42 +189,54 @@ fn execute_run(config_arg: Option<&PathBuf>, args: RunArgs) -> OccResult<()> {
         &args.child_args,
     )?;
     apply_proxy_config(&config.proxy, &mut plan);
+    let timeout_value = resolve_timeout_value(&args, &profile, &config);
 
     if args.dry_run {
-        print_dry_run(&profile, &context, &plan, args.output)?;
-        return Ok(());
+        print_dry_run(
+            &profile,
+            &context,
+            &plan,
+            &model_source,
+            timeout_value.as_deref(),
+            args.output,
+        )?;
+        return Ok(None);
     }
 
     ensure_executable(&plan.executable)?;
     fs::create_dir_all(&doc_root).map_err(|error| {
         OccError::io(
             "doc_root_not_writable",
-            format!("Failed to create '{}'", doc_root.display()),
+            format!("Failed to create '{}'", output::display_path(&doc_root)),
             error,
         )
     })?;
 
+    paths.create_dirs()?;
+    fs::write(&paths.prompt_md, prompt.text.as_deref().unwrap_or(""))
+        .map_err(|error| write_prompt_error(&paths.prompt_md, error))?;
     let started_at = Utc::now();
-    let timeout = parse_timeout(args.timeout.as_deref())?;
+    let timeout = parse_timeout(timeout_value.as_deref())?;
     let child = if args.interactive {
         execute_interactive(&plan, timeout)?
     } else {
-        execute_non_interactive(&plan, timeout)?
+        execute_non_interactive(&plan, timeout, &paths.stdout_log, &paths.stderr_log)?
     };
     let finished_at = Utc::now();
     let timed_out = child.timed_out;
     let success = !timed_out && child.exit_code == Some(0);
 
-    let paths = RunPaths::new(&doc_root, &run_id);
     let record = RunRecord {
         run_id: run_id.clone(),
         session_id: session_record.session_id.clone(),
         profile: profile.name.clone(),
         backend: profile.backend.clone(),
         model: model.clone(),
+        model_source: model_source.clone(),
         cwd: cwd.clone(),
         prompt_source: prompt.source.clone(),
         interactive: args.interactive,
+        timeout: timeout_value.clone(),
         success,
         exit_code: child.exit_code,
         started_at,
@@ -230,8 +257,8 @@ fn execute_run(config_arg: Option<&PathBuf>, args: RunArgs) -> OccResult<()> {
 
     session_record.latest_run_id = Some(run_id.clone());
     session_record.updated_at = finished_at;
-    session::save(&doc_root, &session_record)?;
-    session::append_run(&doc_root, &session_record.session_id, &run_id, started_at)?;
+    session::save(&session_record)?;
+    session::append_run(&session_record.session_id, &run_id, started_at)?;
 
     let error = if timed_out {
         Some(ErrorBody {
@@ -253,13 +280,20 @@ fn execute_run(config_arg: Option<&PathBuf>, args: RunArgs) -> OccResult<()> {
         session_id: session_record.session_id,
         profile: profile.name,
         backend: profile.backend,
+        model,
+        model_source,
         cwd,
         result_path: paths.result_md,
         metadata_path: paths.run_toml,
         exit_code: child.exit_code,
         error,
     };
-    print_run_response(args.output, &response)
+    Ok(Some(RunExecution {
+        body: response,
+        output_mode: args.output,
+        stdout: child.stdout,
+        stderr: child.stderr,
+    }))
 }
 
 fn resolve_profile_for_run(
@@ -275,6 +309,23 @@ fn resolve_profile_for_run(
     config.resolve_profile(args.profile.as_deref(), args.backend.as_deref())
 }
 
+fn resolve_model(
+    args: &RunArgs,
+    session: Option<&SessionRecord>,
+    profile: &Profile,
+) -> (Option<String>, String) {
+    if let Some(model) = &args.model {
+        return (Some(model.clone()), "cli".to_string());
+    }
+    if let Some(model) = session.and_then(|session| session.model.clone()) {
+        return (Some(model), "session".to_string());
+    }
+    if let Some(model) = &profile.model {
+        return (Some(model.clone()), "profile".to_string());
+    }
+    (None, "none".to_string())
+}
+
 fn resolve_cwd(cwd: Option<&PathBuf>) -> OccResult<PathBuf> {
     let path = cwd
         .cloned()
@@ -282,26 +333,32 @@ fn resolve_cwd(cwd: Option<&PathBuf>) -> OccResult<PathBuf> {
     if !path.exists() {
         return Err(OccError::new(
             "cwd_not_found",
-            format!("Working directory '{}' was not found.", path.display()),
+            format!(
+                "Working directory '{}' was not found.",
+                output::display_path(&path)
+            ),
         ));
     }
     let metadata = fs::metadata(&path).map_err(|error| {
         OccError::io(
             "cwd_not_found",
-            format!("Failed to inspect '{}'", path.display()),
+            format!("Failed to inspect '{}'", output::display_path(&path)),
             error,
         )
     })?;
     if !metadata.is_dir() {
         return Err(OccError::new(
             "cwd_not_found",
-            format!("Working directory '{}' is not a directory.", path.display()),
+            format!(
+                "Working directory '{}' is not a directory.",
+                output::display_path(&path)
+            ),
         ));
     }
     path.canonicalize().map_err(|error| {
         OccError::io(
             "cwd_not_found",
-            format!("Failed to canonicalize '{}'", path.display()),
+            format!("Failed to canonicalize '{}'", output::display_path(&path)),
             error,
         )
     })
@@ -339,13 +396,16 @@ fn read_prompt(
         let text = fs::read_to_string(path).map_err(|error| {
             OccError::io(
                 "invalid_prompt_source",
-                format!("Failed to read prompt file '{}'", path.display()),
+                format!(
+                    "Failed to read prompt file '{}'",
+                    output::display_path(&path)
+                ),
                 error,
             )
         })?;
         return Ok(PromptData {
             text: Some(text),
-            source: format!("prompt-file:{}", path.display()),
+            source: format!("prompt-file:{}", output::display_path(&path)),
             file: Some(path.clone()),
         });
     }
@@ -378,7 +438,11 @@ fn read_prompt(
 fn execute_non_interactive(
     plan: &CommandPlan,
     timeout: Option<Duration>,
+    stdout_log: &Path,
+    stderr_log: &Path,
 ) -> OccResult<ChildResult> {
+    let stdout_file = open_stream_log(stdout_log)?;
+    let stderr_file = open_stream_log(stderr_log)?;
     let mut command = Command::new(&plan.executable);
     command
         .args(&plan.args)
@@ -393,10 +457,16 @@ fn execute_non_interactive(
     let mut child = command.spawn().map_err(|error| {
         OccError::io(
             "child_process_failed",
-            format!("Failed to spawn '{}'", plan.executable.display()),
+            format!(
+                "Failed to spawn '{}'",
+                output::display_path(&plan.executable)
+            ),
             error,
         )
     })?;
+
+    let stdout_reader = spawn_stream_reader("stdout", child.stdout.take(), stdout_file);
+    let stderr_reader = spawn_stream_reader("stderr", child.stderr.take(), stderr_file);
 
     if let Some(input) = &plan.prompt_stdin {
         if let Some(mut stdin) = child.stdin.take() {
@@ -407,10 +477,17 @@ fn execute_non_interactive(
                     error,
                 )
             })?;
+            stdin.flush().map_err(|error| {
+                OccError::io(
+                    "child_process_failed",
+                    "Failed to flush prompt to child stdin",
+                    error,
+                )
+            })?;
         }
     }
 
-    if let Some(timeout) = timeout {
+    let (exit_code, timed_out) = if let Some(timeout) = timeout {
         match child.wait_timeout(timeout).map_err(|error| {
             OccError::io(
                 "child_process_failed",
@@ -418,44 +495,32 @@ fn execute_non_interactive(
                 error,
             )
         })? {
-            Some(status) => {
-                let stdout = read_pipe(child.stdout.take())?;
-                let stderr = read_pipe(child.stderr.take())?;
-                Ok(ChildResult {
-                    stdout,
-                    stderr,
-                    exit_code: status.code(),
-                    timed_out: false,
-                })
-            }
+            Some(status) => (status.code(), false),
             None => {
-                let _ = child.kill();
+                terminate_child_tree(&mut child);
                 let _ = child.wait();
-                let stdout = read_pipe(child.stdout.take()).unwrap_or_default();
-                let stderr = read_pipe(child.stderr.take()).unwrap_or_default();
-                Ok(ChildResult {
-                    stdout,
-                    stderr,
-                    exit_code: None,
-                    timed_out: true,
-                })
+                (None, true)
             }
         }
     } else {
-        let output = child.wait_with_output().map_err(|error| {
+        let status = child.wait().map_err(|error| {
             OccError::io(
                 "child_process_failed",
                 "Failed while waiting for child process",
                 error,
             )
         })?;
-        Ok(ChildResult {
-            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-            exit_code: output.status.code(),
-            timed_out: false,
-        })
-    }
+        (status.code(), false)
+    };
+
+    let stdout = join_stream_reader(stdout_reader)?;
+    let stderr = join_stream_reader(stderr_reader)?;
+    Ok(ChildResult {
+        stdout,
+        stderr,
+        exit_code,
+        timed_out,
+    })
 }
 
 fn execute_interactive(plan: &CommandPlan, timeout: Option<Duration>) -> OccResult<ChildResult> {
@@ -470,7 +535,10 @@ fn execute_interactive(plan: &CommandPlan, timeout: Option<Duration>) -> OccResu
     let mut child = command.spawn().map_err(|error| {
         OccError::io(
             "child_process_failed",
-            format!("Failed to spawn '{}'", plan.executable.display()),
+            format!(
+                "Failed to spawn '{}'",
+                output::display_path(&plan.executable)
+            ),
             error,
         )
     })?;
@@ -490,7 +558,7 @@ fn execute_interactive(plan: &CommandPlan, timeout: Option<Duration>) -> OccResu
                 timed_out: false,
             }),
             None => {
-                let _ = child.kill();
+                terminate_child_tree(&mut child);
                 let _ = child.wait();
                 Ok(ChildResult {
                     stdout: String::new(),
@@ -517,14 +585,100 @@ fn execute_interactive(plan: &CommandPlan, timeout: Option<Duration>) -> OccResu
     }
 }
 
-fn read_pipe<R: Read>(pipe: Option<R>) -> OccResult<String> {
-    let mut text = String::new();
-    if let Some(mut pipe) = pipe {
-        pipe.read_to_string(&mut text).map_err(|error| {
-            OccError::io("child_process_failed", "Failed to read child output", error)
+fn open_stream_log(path: &Path) -> OccResult<File> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            OccError::io(
+                "doc_root_not_writable",
+                format!("Failed to create '{}'", output::display_path(parent)),
+                error,
+            )
         })?;
     }
-    Ok(text)
+    OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(path)
+        .map_err(|error| {
+            OccError::io(
+                "doc_root_not_writable",
+                format!("Failed to open '{}'", output::display_path(path)),
+                error,
+            )
+        })
+}
+
+fn spawn_stream_reader<R>(name: &'static str, pipe: Option<R>, mut file: File) -> StreamReader
+where
+    R: Read + Send + 'static,
+{
+    let handle = pipe.map(|mut pipe| {
+        thread::spawn(move || {
+            let mut bytes = Vec::new();
+            let mut chunk = [0_u8; 8192];
+            loop {
+                let count = pipe.read(&mut chunk)?;
+                if count == 0 {
+                    break;
+                }
+                bytes.extend_from_slice(&chunk[..count]);
+                file.write_all(&chunk[..count])?;
+                file.flush()?;
+            }
+            Ok(bytes)
+        })
+    });
+    StreamReader { name, handle }
+}
+
+fn join_stream_reader(reader: StreamReader) -> OccResult<String> {
+    let Some(handle) = reader.handle else {
+        return Ok(String::new());
+    };
+    let bytes = handle.join().map_err(|_| {
+        OccError::new(
+            "child_process_failed",
+            format!("Failed to join child {} reader.", reader.name),
+        )
+    })?;
+    bytes
+        .map(|bytes| decode_child_output(&bytes))
+        .map_err(|error| {
+            OccError::io(
+                "child_process_failed",
+                format!("Failed to capture child {}", reader.name),
+                error,
+            )
+        })
+}
+
+#[cfg(windows)]
+fn terminate_child_tree(child: &mut Child) {
+    let pid = child.id().to_string();
+    let _ = Command::new("taskkill")
+        .args(["/PID", pid.as_str(), "/T", "/F"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    let _ = child.kill();
+}
+
+#[cfg(not(windows))]
+fn terminate_child_tree(child: &mut Child) {
+    let _ = child.kill();
+}
+
+fn decode_child_output(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+fn write_prompt_error(path: &Path, error: std::io::Error) -> OccError {
+    OccError::io(
+        "doc_root_not_writable",
+        format!("Failed to write '{}'", output::display_path(path)),
+        error,
+    )
 }
 
 fn ensure_executable(executable: &Path) -> OccResult<()> {
@@ -534,7 +688,10 @@ fn ensure_executable(executable: &Path) -> OccResult<()> {
         }
         return Err(OccError::new(
             "executable_not_found",
-            format!("Executable '{}' was not found.", executable.display()),
+            format!(
+                "Executable '{}' was not found.",
+                output::display_path(executable)
+            ),
         ));
     }
     which::which(executable).map(|_| ()).map_err(|_| {
@@ -542,7 +699,7 @@ fn ensure_executable(executable: &Path) -> OccResult<()> {
             "executable_not_found",
             format!(
                 "Executable '{}' was not found in PATH.",
-                executable.display()
+                output::display_path(executable)
             ),
         )
     })
@@ -571,7 +728,58 @@ fn apply_command_env(command: &mut Command, plan: &CommandPlan) {
     for key in &plan.env_remove {
         command.env_remove(key);
     }
+    apply_utf8_env_defaults(command, plan);
     command.envs(&plan.env);
+}
+
+fn apply_utf8_env_defaults(command: &mut Command, plan: &CommandPlan) {
+    for &(key, value) in UTF8_ENV_DEFAULTS {
+        if !plan_contains_env_key(plan, key) && env::var_os(key).is_none() {
+            command.env(key, value);
+        }
+    }
+}
+
+fn plan_contains_env_key(plan: &CommandPlan, key: &str) -> bool {
+    plan.env.contains_key(key) || plan.env_remove.iter().any(|value| env_key_eq(value, key))
+}
+
+#[cfg(windows)]
+fn env_key_eq(left: &str, right: &str) -> bool {
+    left.eq_ignore_ascii_case(right)
+}
+
+#[cfg(not(windows))]
+fn env_key_eq(left: &str, right: &str) -> bool {
+    left == right
+}
+
+const UTF8_ENV_DEFAULTS: &[(&str, &str)] = &[
+    ("LANG", "C.UTF-8"),
+    ("LC_CTYPE", "C.UTF-8"),
+    ("PYTHONUTF8", "1"),
+    ("PYTHONIOENCODING", "utf-8"),
+];
+
+fn resolve_timeout_value(
+    args: &RunArgs,
+    profile: &Profile,
+    config: &EffectiveConfig,
+) -> Option<String> {
+    args.timeout
+        .as_deref()
+        .or(profile.default_timeout.as_deref())
+        .or(config.timeouts.default_run.as_deref())
+        .and_then(normalize_timeout_value)
+}
+
+fn normalize_timeout_value(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() || value.eq_ignore_ascii_case("none") {
+        None
+    } else {
+        Some(value.to_string())
+    }
 }
 
 fn parse_timeout(value: Option<&str>) -> OccResult<Option<Duration>> {
@@ -601,6 +809,8 @@ fn print_dry_run(
     profile: &Profile,
     context: &TemplateContext,
     plan: &CommandPlan,
+    model_source: &str,
+    timeout: Option<&str>,
     output: OutputMode,
 ) -> OccResult<()> {
     #[derive(Serialize)]
@@ -612,6 +822,8 @@ fn print_dry_run(
         env_removed: &'a [String],
         prompt_via_stdin: bool,
         prompt_file: Option<&'a PathBuf>,
+        prompt_transport: crate::config::PromptVia,
+        timeout: Option<&'a str>,
     }
 
     #[derive(Serialize)]
@@ -619,6 +831,7 @@ fn print_dry_run(
         success: bool,
         profile: &'a Profile,
         context: &'a TemplateContext,
+        model_source: &'a str,
         command: DryCommand<'a>,
     }
 
@@ -626,6 +839,7 @@ fn print_dry_run(
         success: true,
         profile,
         context,
+        model_source,
         command: DryCommand {
             executable: &plan.executable,
             args: &plan.args,
@@ -634,6 +848,8 @@ fn print_dry_run(
             env_removed: &plan.env_remove,
             prompt_via_stdin: plan.prompt_stdin.is_some(),
             prompt_file: plan.prompt_file.as_ref(),
+            prompt_transport: plan.prompt_transport,
+            timeout,
         },
     };
 
@@ -645,15 +861,16 @@ fn print_dry_run(
                     format!("Failed to serialize dry-run JSON: {}", error),
                 )
             })?;
-            println!("{}", text);
+            println!("{}", output::display_text(&text));
         }
         _ => {
             println!("profile: {}", profile.name);
             println!("backend: {}", profile.backend);
-            println!("cwd: {}", plan.cwd.display());
+            println!("model_source: {}", model_source);
+            println!("cwd: {}", output::display_path(&plan.cwd));
             println!(
                 "command: {} {}",
-                plan.executable.display(),
+                output::display_path(&plan.executable),
                 plan.args.join(" ")
             );
             if !plan.env.is_empty() {
@@ -665,6 +882,11 @@ fn print_dry_run(
             if !plan.env_remove.is_empty() {
                 println!("env_removed: {}", plan.env_remove.join(","));
             }
+            println!("prompt_transport: {:?}", plan.prompt_transport);
+            if let Some(prompt_file) = &plan.prompt_file {
+                println!("prompt_file: {}", output::display_path(prompt_file));
+            }
+            println!("timeout: {}", timeout.unwrap_or("none"));
         }
     }
     Ok(())
