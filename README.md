@@ -124,10 +124,12 @@ occ run --backend claude --prompt "Reply with exactly OK" --output json
 occ run --backend codex --prompt "Reply with exactly OK" --output json
 ```
 
-长任务推荐 prompt file：
+长任务推荐通过 stdin 传入，避免额外 prompt 文件：
 
 ```powershell
-occ run --backend claude --cwd "E:\project\repo" --prompt-file task.md --output json
+@"
+Long task prompt...
+"@ | occ run --backend claude --cwd "E:\project\repo" --stdin --output json
 ```
 
 JSON 输出包含：
@@ -348,10 +350,12 @@ occ run --backend claude --prompt "Reply with exactly OK" --output json
 occ run --backend codex --prompt "Reply with exactly OK" --output json
 ```
 
-For long tasks:
+For long inline tasks:
 
 ```powershell
-occ run --backend claude --cwd "E:\project\repo" --prompt-file task.md --output json
+@"
+Long task prompt...
+"@ | occ run --backend claude --cwd "E:\project\repo" --stdin --output json
 ```
 
 Read `result_path` first from the JSON response.
