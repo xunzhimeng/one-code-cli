@@ -1,6 +1,6 @@
 use std::env;
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread::{self, JoinHandle};
@@ -470,20 +470,7 @@ fn execute_non_interactive(
 
     if let Some(input) = &plan.prompt_stdin {
         if let Some(mut stdin) = child.stdin.take() {
-            stdin.write_all(input.as_bytes()).map_err(|error| {
-                OccError::io(
-                    "child_process_failed",
-                    "Failed to write prompt to child stdin",
-                    error,
-                )
-            })?;
-            stdin.flush().map_err(|error| {
-                OccError::io(
-                    "child_process_failed",
-                    "Failed to flush prompt to child stdin",
-                    error,
-                )
-            })?;
+            write_child_stdin(&mut stdin, input)?;
         }
     }
 
@@ -521,6 +508,29 @@ fn execute_non_interactive(
         exit_code,
         timed_out,
     })
+}
+
+fn write_child_stdin(stdin: &mut impl Write, input: &str) -> OccResult<()> {
+    match stdin.write_all(input.as_bytes()) {
+        Ok(_) => {}
+        Err(error) if error.kind() == ErrorKind::BrokenPipe => return Ok(()),
+        Err(error) => {
+            return Err(OccError::io(
+                "child_process_failed",
+                "Failed to write prompt to child stdin",
+                error,
+            ));
+        }
+    }
+    match stdin.flush() {
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == ErrorKind::BrokenPipe => Ok(()),
+        Err(error) => Err(OccError::io(
+            "child_process_failed",
+            "Failed to flush prompt to child stdin",
+            error,
+        )),
+    }
 }
 
 fn execute_interactive(plan: &CommandPlan, timeout: Option<Duration>) -> OccResult<ChildResult> {
