@@ -2,9 +2,6 @@ name: Publish npm
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
 
 permissions:
   contents: read
@@ -14,7 +11,6 @@ jobs:
   publish:
     name: Publish npm package
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[publish-npm]')
 
     steps:
       - name: Checkout
