@@ -101,7 +101,7 @@ pub fn write_run_files(
     };
     let command_json = serde_json::to_string_pretty(&command_metadata).map_err(|error| {
         OccError::new(
-            "config_parse_failed",
+            "serialization_failed",
             format!("Failed to serialize command JSON: {}", error),
         )
     })?;
@@ -110,7 +110,7 @@ pub fn write_run_files(
 
     let run_toml = toml::to_string_pretty(record).map_err(|error| {
         OccError::new(
-            "config_parse_failed",
+            "serialization_failed",
             format!("Failed to serialize run TOML: {}", error),
         )
     })?;
@@ -127,7 +127,7 @@ pub fn result_markdown(record: &RunRecord, stdout: &str, stderr: &str) -> String
         stdout
     };
     format!(
-        "# One Code CLI Run Result\n\n## Summary\n\n{}\n\n## Run\n\n- Run ID: {}\n- Session ID: {}\n- Profile: {}\n- Backend: {}\n- Model: {}\n- Model Source: {}\n- Working Directory: {}\n- Interactive: {}\n- Success: {}\n- Exit Code: {}\n- Started At: {}\n- Finished At: {}\n\n## Prompt\n\nSee `prompt.md`.\n\n## Output\n\n{}\n\n## Logs\n\n- stdout: `stdout.log`\n- stderr: `stderr.log`\n- events: `events.jsonl`\n",
+        "# One Code CLI Run Result\n\n## Summary\n\n{}\n\n## Run\n\n- Run ID: {}\n- Session ID: {}\n- Agent: {}\n- CLI: {}\n- Model: {}\n- Model Source: {}\n- Working Directory: {}\n- Interactive: {}\n- Success: {}\n- Exit Code: {}\n- Started At: {}\n- Finished At: {}\n\n## Prompt\n\nSee `prompt.md`.\n\n## Output\n\n{}\n\n## Logs\n\n- stdout: `stdout.log`\n- stderr: `stderr.log`\n- events: `events.jsonl`\n",
         first_non_empty_line(output).unwrap_or("No output."),
         record.run_id,
         record.session_id,
@@ -161,7 +161,7 @@ fn event_line(record: &RunRecord) -> OccResult<String> {
         .map(|line| format!("{}\n", line))
         .map_err(|error| {
             OccError::new(
-                "config_parse_failed",
+                "serialization_failed",
                 format!("Failed to serialize event JSON: {}", error),
             )
         })

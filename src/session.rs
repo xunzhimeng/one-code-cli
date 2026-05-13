@@ -13,7 +13,9 @@ use crate::output;
 pub struct SessionRecord {
     pub session_id: String,
     pub backend_session_id: Option<String>,
+    #[serde(rename = "agent", alias = "profile", alias = "agent_alias")]
     pub profile: String,
+    #[serde(rename = "cli", alias = "backend", alias = "cli_type")]
     pub backend: String,
     pub cwd: PathBuf,
     pub model: Option<String>,
@@ -25,7 +27,9 @@ pub struct SessionRecord {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionIndexEntry {
     pub session_id: String,
+    #[serde(rename = "agent", alias = "profile", alias = "agent_alias")]
     pub profile: String,
+    #[serde(rename = "cli", alias = "backend", alias = "cli_type")]
     pub backend: String,
     pub cwd: PathBuf,
     #[serde(default)]
@@ -176,7 +180,7 @@ pub fn load_from_path(path: &Path) -> OccResult<SessionRecord> {
     })?;
     toml::from_str(&text).map_err(|error| {
         OccError::new(
-            "config_parse_failed",
+            "session_parse_failed",
             format!(
                 "Failed to parse '{}': {}",
                 output::display_path(path),
@@ -233,7 +237,7 @@ pub fn user_session_db_path() -> OccResult<PathBuf> {
         .map(|base_dirs| base_dirs.home_dir().join(".occ").join("sessions.sqlite"))
         .ok_or_else(|| {
             OccError::new(
-                "config_not_found",
+                "home_not_found",
                 "Unable to locate the user home directory.",
             )
         })
@@ -271,6 +275,8 @@ fn open_user_db() -> OccResult<Connection> {
             error,
         )
     })?;
+    conn.execute_batch("PRAGMA journal_mode=WAL;")
+        .map_err(|error| sqlite_error("Failed to set WAL journal mode", error))?;
     init_db(&conn)?;
     Ok(conn)
 }
@@ -430,7 +436,7 @@ fn read_index(path: &Path) -> OccResult<Vec<SessionIndexEntry>> {
     }
     let text = fs::read_to_string(path).map_err(|error| {
         OccError::io(
-            "config_parse_failed",
+            "session_parse_failed",
             format!("Failed to read '{}'", output::display_path(path)),
             error,
         )
@@ -479,7 +485,7 @@ fn parse_time(value: &str, field: &str) -> OccResult<DateTime<Utc>> {
         .map(|value| value.with_timezone(&Utc))
         .map_err(|error| {
             OccError::new(
-                "config_parse_failed",
+                "timestamp_parse_failed",
                 format!("Failed to parse session {} '{}': {}", field, value, error),
             )
         })
@@ -498,4 +504,53 @@ fn sqlite_error(action: impl Into<String>, error: rusqlite::Error) -> OccError {
         "session_store_failed",
         format!("{}: {}", action.into(), error),
     )
+}
+
+/// Migrate legacy session-index.jsonl entries into the SQLite session store.
+/// Returns the number of sessions imported.
+pub fn migrate_legacy(doc_root: &Path) -> OccResult<usize> {
+    let entries = legacy_index_entries(doc_root)?;
+    if entries.is_empty() {
+        return Ok(0);
+    }
+    let conn = open_user_db()?;
+    let mut count = 0;
+    for entry in &entries {
+        // Check if already in SQLite
+        let exists: bool = conn
+            .query_row(
+                "SELECT 1 FROM sessions WHERE session_id = ?1",
+                params![entry.session_id],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        if exists {
+            continue;
+        }
+        // Try to load full record from TOML file
+        if let Some(path) = &entry.session_path {
+            if path.exists() {
+                if let Ok(record) = load_from_path(path) {
+                    save(&record)?;
+                    count += 1;
+                    continue;
+                }
+            }
+        }
+        // Otherwise create a minimal record from the index entry
+        let record = SessionRecord {
+            session_id: entry.session_id.clone(),
+            backend_session_id: None,
+            profile: entry.profile.clone(),
+            backend: entry.backend.clone(),
+            cwd: entry.cwd.clone(),
+            model: None,
+            latest_run_id: None,
+            created_at: entry.updated_at,
+            updated_at: entry.updated_at,
+        };
+        save(&record)?;
+        count += 1;
+    }
+    Ok(count)
 }

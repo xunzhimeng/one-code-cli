@@ -1,9 +1,9 @@
-# Run with a backend
+# Run with a CLI
 
-Use this when the user wants a backend type and allows `occ` to resolve the default profile.
+Use this when the user wants a CLI and allows `occ` to resolve the default agent.
 
 ```bash
-occ run --backend claude --cwd <cwd> --prompt "<task prompt>" --output json
+occ run --cli claude --cwd <cwd> --prompt "<task prompt>" --non-interactive --stream --output json
 ```
 
-Valid backend values are `claude`, `codex`, `opencode`, and `gemini`.
+Valid CLI values are `claude`, `codex`, `opencode`, and `gemini`.

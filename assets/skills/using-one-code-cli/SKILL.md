@@ -1,99 +1,144 @@
 ---
 name: using-one-code-cli
-description: Protocol for agents to delegate coding tasks through occ and read result documents.
+description: Delegate coding tasks through occ with visible setup, controlled execution, and result artifact review.
 ---
 
 # Use One Code CLI
 
-## Purpose
+Use this skill when an agent delegates a coding task to another coding-agent CLI through `occ`.
 
-Use this skill when you are an agent that needs to delegate a coding task to another coding-agent CLI through `occ`.
-
-`occ` is the dispatcher. The target worker is selected with `--profile` or `--backend`.
+`occ` is the dispatcher. The worker is selected with either an exact `--agent` or a CLI such as `--cli claude`, `--cli codex`, `--cli opencode`, or `--cli gemini`.
 
 ## Required inputs
 
 - Working directory for the delegated task.
-- Task prompt text.
-- Either an exact `occ` profile or a backend type: `claude`, `codex`, `opencode`, or `gemini`.
+- Task prompt text, unless starting a foreground interactive session.
+- Either an exact agent or a CLI.
+- Whether the user wants supervised foreground execution or automated non-interactive execution.
 
-## Preferred protocol
+## Storage model
 
-1. Discover the local environment with `occ doctor`, `occ profiles list`, and `occ backends list` instead of hardcoding assumptions.
-2. Pass the delegated task with `--prompt` for short text or `--stdin` for longer inline text.
-3. Use `--prompt-file` only when the task prompt already exists as a file or the worker must reference that file.
-4. Run `occ run` with `--output json`.
-5. Select workers by exact `--profile` when the user or project specifies one.
-6. Select workers by `--backend claude`, `--backend codex`, `--backend opencode`, or `--backend gemini` when the user allows `occ` to resolve the default profile.
-7. Parse the JSON response.
-8. Read `result_path` first.
-9. If needed, inspect `metadata_path`, `events.jsonl`, `stdout.log`, and `stderr.log`.
-10. Preserve `session_id` only if you may continue the same delegated task later.
+- Run artifacts are written under `doc_root/runs/<run_id>/`.
+- The default `doc_root` is the user's `~/.occ`, so runs are centralized under `~/.occ/runs/...`.
+- To write artifacts inside a project, pass `--doc-root <path>` or configure `doc_root = ".occ"` in an occ config file.
+- User-level session bookkeeping also uses `~/.occ`.
 
-## Basic command
+## Execution paths
+
+### Fast path: known environment
+
+Use this when `occ` is already known to work and the user or project specifies the target/CLI.
+
+1. State the intended `cwd`, agent/CLI, mode, timeout, and whether files may be modified.
+2. For non-interactive work, run `occ run ... --dry-run --output json` first when command shape, permissions, or prompt routing need confirmation.
+3. Run the task only after the parameters are clear.
+4. Parse JSON output, then read `result_path` first.
+5. Inspect `metadata_path`, `stdout.log`, `stderr.log`, or `events.jsonl` only when the result is missing, incomplete, failed, or ambiguous.
+
+Do not run `occ doctor`, `occ agents list`, or `occ clis list` on every invocation when the environment is already known.
+
+### Diagnostic path: unknown or failing environment
+
+Use this when agent/CLI selection is unclear, `occ` failed, config may be stale, or the user asked for environment diagnosis.
+
+1. Run `occ doctor`.
+2. Run `occ agents list` only if agent selection is unknown or agent resolution failed.
+3. Run `occ clis list` only if CLI support is unknown or CLI resolution failed.
+4. Retry the smallest command needed to verify the fix, preferably with `--dry-run` before real execution.
+
+## Foreground and background policy
+
+- If the user wants supervision, default to foreground interactive mode. `occ run` without `--prompt`, `--prompt-file`, or `--stdin` enters interactive mode; `--interactive` can be used explicitly.
+- Do not launch long non-interactive runs silently. First show or dry-run the command parameters: `cwd`, agent/CLI, prompt source, `doc_root`, timeout, and permission posture.
+- Use non-interactive background-style execution only after parameters are set, the task needs automation, or the user accepts that the child CLI TUI will not be visible.
+- For supervised non-interactive runs, pass `--stream` so child stdout/stderr is mirrored to parent stderr while JSON remains on stdout.
+- For long non-interactive runs, set a timeout, for example `--timeout 10m`, unless the user explicitly wants no timeout.
+- Do not terminate a child process only because stdout is quiet. Some CLIs buffer output until completion.
+
+## Commands
+
+Foreground supervised session:
 
 ```bash
-occ run --profile <profile> --cwd <cwd> --prompt "<task prompt>" --output json
+occ run --cli claude --cwd <cwd> --interactive
 ```
 
-For longer inline prompts:
+Non-interactive with a short prompt:
 
 ```bash
-printf '%s\n' "<task prompt>" | occ run --profile <profile> --cwd <cwd> --stdin --output json
+occ run --agent <agent> --cwd <cwd> --prompt "<task prompt>" --non-interactive --stream --output json --timeout 10m
 ```
 
-If the exact profile is unknown but the backend is known:
+Non-interactive with a longer inline prompt:
 
 ```bash
-occ run --backend claude --cwd <cwd> --prompt "<task prompt>" --output json
+printf '%s\n' "<task prompt>" | occ run --agent <agent> --cwd <cwd> --stdin --non-interactive --stream --output json --timeout 10m
 ```
 
-## Resume command
+Use `--prompt-file` only when the prompt already exists as a file or the worker must reference that exact file.
 
-Do not assume every backend supports native resume. `occ` keeps its own `session_id` and may also know a backend-native session id. If the selected backend/profile requires a backend-native session id and the session does not have one, `occ` returns `backend_session_missing`.
+If the agent is unknown but CLI is known:
 
 ```bash
-occ run --session <session-id> --resume --prompt "<follow-up prompt>" --output json
+occ run --cli claude --cwd <cwd> --prompt "<task prompt>" --non-interactive --stream --output json --timeout 10m
 ```
 
-If you do not have a session id, resume the latest matching session:
+Dry-run before real execution when parameters need inspection:
 
 ```bash
-occ run --resume --profile <profile> --cwd <cwd> --prompt "<follow-up prompt>" --output json
+occ run --cli claude --cwd <cwd> --prompt "test" --non-interactive --dry-run --output json
 ```
 
-## Expected JSON output
+## Monitoring and artifacts
+
+Expected JSON output:
 
 ```json
 {
   "success": true,
   "run_id": "run_...",
   "session_id": "sess_...",
-  "profile": "claude-sonnet",
-  "backend": "claude",
+  "agent": "claude",
+  "cli": "claude",
   "cwd": "E:/project/repo",
-  "result_path": "E:/project/repo/.occ/runs/run_.../result.md",
-  "metadata_path": "E:/project/repo/.occ/runs/run_.../run.toml",
+  "result_path": "C:/Users/user/.occ/runs/run_.../result.md",
+  "metadata_path": "C:/Users/user/.occ/runs/run_.../run.toml",
   "exit_code": 0
 }
 ```
 
-## Error handling
+Read order after completion:
 
-If `success` is false:
+1. `result_path`
+2. `metadata_path`
+3. `stdout.log`
+4. `stderr.log`
+5. `events.jsonl`
 
-- Read `error.code` and `error.message`.
-- Check `exit_code` when present.
-- Inspect `stderr.log` if `metadata_path` or `result_path` is present.
-- If `error.code` is `resume_unsupported`, stop trying to resume with that profile.
-- If `error.code` is `backend_session_missing`, stop retrying resume for that session/profile and start a new task unless the user asks otherwise.
+If the parent agent cannot stream the child process output, treat silence as normal until timeout or exit. Give the user the run directory and current wait policy instead of repeatedly killing or restarting the process.
 
-## Safety rules for calling agents
+## Resume
 
-- Do not guess a profile if the user requested a specific one.
-- Prefer `--stdin` over `--prompt-file` for long inline tasks.
-- Use `--prompt-file` only for file-based, reusable, or explicitly file-required tasks.
-- Use `--dry-run` before execution if you need to inspect the resolved command.
+Do not assume every CLI supports native resume. `occ` keeps its own `session_id` and may also know a CLI-native session id.
+
+```bash
+occ run --session <session-id> --resume --prompt "<follow-up prompt>" --output json
+```
+
+If no session id is available:
+
+```bash
+occ run --resume --agent <agent> --cwd <cwd> --prompt "<follow-up prompt>" --output json
+```
+
+If `backend_session_missing` or `resume_unsupported` is returned, stop retrying resume for that session/agent unless the user asks otherwise.
+
+## Safety rules
+
+- Do not guess an agent when the user requested a specific one.
+- Prefer exact `--agent` when configured by the user or project.
+- Prefer `--stdin` over temporary prompt files for long inline prompts.
 - Treat `result.md` as the authoritative delegated result.
 - Do not assume stdout alone contains the final answer.
 - Do not configure or install sub CLIs unless the user asks.
+- Do not modify repository files from a delegated review task unless the user explicitly requested implementation.

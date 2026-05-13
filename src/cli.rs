@@ -4,9 +4,14 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Parser)]
-#[command(name = "occ", version, about = "One Code CLI")]
+#[command(
+    name = "occ",
+    version,
+    about = "One Code CLI - unified coding-agent CLI dispatcher",
+    after_help = "Language: set OCC_LANG=zh-CN or OCC_LANG=en-US to prefer Chinese or English explanatory output."
+)]
 pub struct Cli {
-    #[arg(long, global = true)]
+    #[arg(long, help = "Path to a specific config file")]
     pub config: Option<PathBuf>,
 
     #[command(subcommand)]
@@ -21,7 +26,7 @@ impl Cli {
         ) || matches!(
             &self.command,
             Commands::Sessions(SessionsArgs {
-                command: SessionsCommand::Resume(args),
+                command: Some(SessionsCommand::Resume(args)),
             }) if args.output == OutputMode::Json
         )
     }
@@ -29,112 +34,136 @@ impl Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
+    #[command(about = "Run one delegated task / 运行一次委派任务")]
     Run(RunArgs),
     #[command(alias = "chat")]
+    #[command(about = "Chat with a selected coding CLI / 与指定 CLI 连续对话")]
     Vibe(VibeArgs),
+    #[command(
+        about = "Check configuration, paths, agent aliases, and executables / 检查配置、路径、agent alias 和可执行文件"
+    )]
     Doctor,
+    #[command(name = "agents", alias = "agent-aliases", alias = "targets", alias = "profiles")]
+    #[command(about = "List, show, and test agents / 查看、展示和测试 agent")]
     Profiles(ProfilesArgs),
+    #[command(name = "clis", alias = "cli-types", alias = "backends")]
+    #[command(about = "List and inspect supported CLIs / 查看支持的 CLI")]
     Backends(BackendsArgs),
+    #[command(about = "Manage and explain occ configuration / 管理并解释 occ 配置")]
     Config(ConfigArgs),
+    #[command(about = "List, inspect, and resume sessions / 查看、检查和恢复会话")]
     Sessions(SessionsArgs),
+    #[command(about = "List, inspect, and open run artifacts / 查看、检查和打开运行记录")]
     Runs(RunsArgs),
+    #[command(about = "Install and inspect bundled skills / 安装和查看内置 skills")]
     Skills(SkillsArgs),
+}
+
+/// Shared arguments between `run` and `vibe` subcommands.
+#[derive(Debug, Args, Clone)]
+pub struct CommonArgs {
+    #[arg(
+        long = "agent",
+        alias = "agent-alias",
+        alias = "target",
+        alias = "profile",
+        help = "Select an exact occ agent by name"
+    )]
+    pub profile: Option<String>,
+
+    #[arg(
+        short = 'b',
+        long = "cli",
+        alias = "cli-type",
+        alias = "backend",
+        help = "Select a CLI (claude, codex, opencode, gemini)"
+    )]
+    pub backend: Option<String>,
+
+    #[arg(short = 'm', long, help = "Override the model for this run")]
+    pub model: Option<String>,
+
+    #[arg(short = 'C', long, help = "Working directory for the child process")]
+    pub cwd: Option<PathBuf>,
+
+    #[arg(short = 'p', long, help = "Task prompt text")]
+    pub prompt: Option<String>,
+
+    #[arg(long, help = "Read prompt from a file")]
+    pub prompt_file: Option<PathBuf>,
+
+    #[arg(long, help = "Read prompt from stdin")]
+    pub stdin: bool,
+
+    #[arg(long, help = "Attach to an existing occ session by ID")]
+    pub session: Option<String>,
+
+    #[arg(long, help = "Resume the latest or specified session")]
+    pub resume: bool,
+
+    #[arg(long, help = "Override the run artifact directory")]
+    pub doc_root: Option<PathBuf>,
+
+    #[arg(
+        long,
+        value_name = "DURATION",
+        help = "Task timeout (e.g. 90s, 5m, 3000ms)"
+    )]
+    pub timeout: Option<String>,
+
+    #[arg(long, help = "Show the command plan without executing")]
+    pub dry_run: bool,
+
+    #[arg(
+        last = true,
+        help = "Additional arguments passed through to the child CLI"
+    )]
+    pub child_args: Vec<String>,
 }
 
 #[derive(Debug, Args, Clone)]
 pub struct RunArgs {
-    #[arg(long)]
-    pub profile: Option<String>,
+    #[command(flatten)]
+    pub common: CommonArgs,
 
-    #[arg(long)]
-    pub backend: Option<String>,
-
-    #[arg(long)]
-    pub model: Option<String>,
-
-    #[arg(long)]
-    pub cwd: Option<PathBuf>,
-
-    #[arg(long)]
-    pub prompt: Option<String>,
-
-    #[arg(long)]
-    pub prompt_file: Option<PathBuf>,
-
-    #[arg(long)]
-    pub stdin: bool,
-
-    #[arg(long)]
+    #[arg(short = 'i', long, help = "Force foreground interactive mode")]
     pub interactive: bool,
 
-    #[arg(long)]
+    #[arg(short = 'n', long, help = "Force non-interactive automation mode")]
     pub non_interactive: bool,
 
-    #[arg(long)]
-    pub session: Option<String>,
+    #[arg(
+        short = 's',
+        long,
+        help = "Mirror child stdout/stderr to parent stderr in real time"
+    )]
+    pub stream: bool,
 
-    #[arg(long)]
-    pub resume: bool,
-
-    #[arg(long)]
-    pub doc_root: Option<PathBuf>,
-
-    #[arg(long, value_enum, default_value_t = OutputMode::Text)]
+    #[arg(short = 'o', long, value_enum, default_value_t = OutputMode::Text, help = "Output format: text, json, or path")]
     pub output: OutputMode,
+}
 
-    #[arg(long)]
-    pub timeout: Option<String>,
-
-    #[arg(long)]
-    pub dry_run: bool,
-
-    #[arg(last = true)]
-    pub child_args: Vec<String>,
+impl std::ops::Deref for RunArgs {
+    type Target = CommonArgs;
+    fn deref(&self) -> &CommonArgs {
+        &self.common
+    }
 }
 
 #[derive(Debug, Args, Clone)]
 pub struct VibeArgs {
-    #[arg(long)]
-    pub profile: Option<String>,
+    #[command(flatten)]
+    pub common: CommonArgs,
 
-    #[arg(long)]
-    pub backend: Option<String>,
-
-    #[arg(long)]
-    pub model: Option<String>,
-
-    #[arg(long)]
-    pub cwd: Option<PathBuf>,
-
-    #[arg(long)]
-    pub prompt: Option<String>,
-
-    #[arg(long)]
-    pub prompt_file: Option<PathBuf>,
-
-    #[arg(long)]
-    pub stdin: bool,
-
-    #[arg(long)]
-    pub session: Option<String>,
-
-    #[arg(long)]
-    pub resume: bool,
-
-    #[arg(long)]
-    pub doc_root: Option<PathBuf>,
-
-    #[arg(long)]
-    pub timeout: Option<String>,
-
-    #[arg(long)]
-    pub dry_run: bool,
-
-    #[arg(long)]
+    #[arg(long, help = "Disable occ-managed transcript context accumulation")]
     pub no_transcript: bool,
+}
 
-    #[arg(last = true)]
-    pub child_args: Vec<String>,
+impl std::ops::Deref for VibeArgs {
+    type Target = CommonArgs;
+    fn deref(&self) -> &CommonArgs {
+        &self.common
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
@@ -148,61 +177,83 @@ pub enum OutputMode {
 #[derive(Debug, Args)]
 pub struct ProfilesArgs {
     #[command(subcommand)]
-    pub command: ProfilesCommand,
+    pub command: Option<ProfilesCommand>,
 }
 
 #[derive(Debug, Subcommand)]
 pub enum ProfilesCommand {
+    #[command(about = "List agents / 列出 agent")]
     List,
+    #[command(about = "Show one agent as TOML / 以 TOML 展示单个 agent")]
     Show { name: String },
+    #[command(about = "Render an agent command plan / 测试 agent 的命令计划")]
     Test { name: String },
 }
 
 #[derive(Debug, Args)]
 pub struct BackendsArgs {
     #[command(subcommand)]
-    pub command: BackendsCommand,
+    pub command: Option<BackendsCommand>,
 }
 
 #[derive(Debug, Subcommand)]
 pub enum BackendsCommand {
+    #[command(about = "List CLIs / 列出 CLI")]
     List,
+    #[command(about = "Show CLI capabilities / 展示 CLI 能力")]
     Show { name: String },
 }
 
 #[derive(Debug, Args)]
 pub struct ConfigArgs {
     #[command(subcommand)]
-    pub command: ConfigCommand,
+    pub command: Option<ConfigCommand>,
 }
 
 #[derive(Debug, Subcommand)]
 pub enum ConfigCommand {
+    #[command(about = "Create a sample config file / 创建示例配置文件")]
     Init {
-        #[arg(long)]
+        #[arg(
+            long,
+            conflicts_with = "project",
+            help = "Create user-level config at ~/.occ/config.toml"
+        )]
         user: bool,
 
-        #[arg(long)]
+        #[arg(
+            long,
+            conflicts_with = "user",
+            help = "Create project-level config at .occ/config.toml"
+        )]
         project: bool,
 
-        #[arg(long)]
+        #[arg(long, help = "Overwrite an existing config file")]
         force: bool,
     },
+    #[command(about = "Print config search paths / 打印配置搜索路径")]
     Path,
-    Show,
+    #[command(about = "Explain the effective config / 解释当前生效配置")]
+    Show {
+        #[arg(long, help = "Print the raw TOML instead of an explained summary")]
+        raw: bool,
+    },
+    #[command(about = "Validate config semantics / 校验配置语义")]
     Validate,
+    #[command(about = "Open editable config UI / 打开配置编辑 UI")]
     Ui {
-        #[arg(long)]
+        #[arg(long, help = "Output path for the generated HTML file")]
         output: Option<PathBuf>,
     },
+    #[command(about = "Export standalone config HTML / 导出静态配置 HTML")]
     ExportHtml {
-        #[arg(long)]
+        #[arg(long, help = "Output path for the generated HTML file")]
         output: Option<PathBuf>,
 
-        #[arg(long, value_enum, default_value_t = ConfigTarget::Loaded)]
+        #[arg(long, value_enum, default_value_t = ConfigTarget::Loaded, help = "Config target: user, project, or loaded")]
         target: ConfigTarget,
 
-        #[arg(long)]
+        #[arg(long, help = "Open the exported HTML in the default browser")]
         open: bool,
     },
 }
@@ -217,85 +268,113 @@ pub enum ConfigTarget {
 #[derive(Debug, Args)]
 pub struct SessionsArgs {
     #[command(subcommand)]
-    pub command: SessionsCommand,
+    pub command: Option<SessionsCommand>,
 }
 
 #[derive(Debug, Subcommand)]
 pub enum SessionsCommand {
+    #[command(about = "List sessions / 列出会话")]
     List {
-        #[arg(long, default_value_t = 20)]
+        #[arg(
+            long,
+            default_value_t = 20,
+            help = "Maximum number of sessions to show"
+        )]
         limit: usize,
     },
-    Show {
-        session_id: String,
-    },
+    #[command(about = "Show one session / 展示单个会话")]
+    Show { session_id: String },
+    #[command(about = "Resume a session / 恢复会话")]
     Resume(SessionResumeArgs),
+    #[command(about = "Find the latest matching session / 查找最近匹配会话")]
     Latest(SessionLatestArgs),
+    #[command(
+        about = "Migrate legacy session-index.jsonl into SQLite / 迁移旧 JSONL 会话到 SQLite"
+    )]
+    Migrate,
 }
 
 #[derive(Debug, Args)]
 pub struct SessionResumeArgs {
     pub session_id: String,
 
-    #[arg(long)]
+    #[arg(short = 'p', long, help = "Follow-up prompt text")]
     pub prompt: Option<String>,
 
-    #[arg(long)]
+    #[arg(long, help = "Read follow-up prompt from a file")]
     pub prompt_file: Option<PathBuf>,
 
-    #[arg(long)]
+    #[arg(long, help = "Read follow-up prompt from stdin")]
     pub stdin: bool,
 
-    #[arg(long)]
+    #[arg(short = 's', long, help = "Mirror child output to parent stderr")]
+    pub stream: bool,
+
+    #[arg(short = 'C', long, help = "Override working directory")]
     pub cwd: Option<PathBuf>,
 
-    #[arg(long)]
+    #[arg(short = 'm', long, help = "Override model")]
     pub model: Option<String>,
 
-    #[arg(long)]
+    #[arg(long, help = "Override the run artifact directory")]
     pub doc_root: Option<PathBuf>,
 
-    #[arg(long, value_enum, default_value_t = OutputMode::Text)]
+    #[arg(short = 'o', long, value_enum, default_value_t = OutputMode::Text, help = "Output format")]
     pub output: OutputMode,
 
-    #[arg(long)]
+    #[arg(long, help = "Show the command plan without executing")]
     pub dry_run: bool,
 
-    #[arg(last = true)]
+    #[arg(
+        last = true,
+        help = "Additional arguments passed through to the child CLI"
+    )]
     pub child_args: Vec<String>,
 }
 
 #[derive(Debug, Args)]
 pub struct SessionLatestArgs {
-    #[arg(long)]
+    #[arg(
+        long = "agent",
+        alias = "agent-alias",
+        alias = "target",
+        alias = "profile",
+        help = "Filter by agent"
+    )]
     pub profile: Option<String>,
 
-    #[arg(long)]
+    #[arg(
+        long = "cli",
+        alias = "cli-type",
+        alias = "backend",
+        help = "Filter by CLI"
+    )]
     pub backend: Option<String>,
 
-    #[arg(long)]
+    #[arg(long, help = "Filter by working directory")]
     pub cwd: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
 pub struct RunsArgs {
     #[command(subcommand)]
-    pub command: RunsCommand,
+    pub command: Option<RunsCommand>,
 }
 
 #[derive(Debug, Subcommand)]
 pub enum RunsCommand {
+    #[command(about = "List runs / 列出运行记录")]
     List {
-        #[arg(long, default_value_t = 20)]
+        #[arg(long, default_value_t = 20, help = "Maximum number of runs to show")]
         limit: usize,
     },
-    Show {
-        run_id: String,
-    },
+    #[command(about = "Show run metadata / 展示运行元数据")]
+    Show { run_id: String },
+    #[command(about = "Open or print run result / 打开或打印运行结果")]
     Open {
         run_id: String,
 
-        #[arg(long)]
+        #[arg(long, help = "Print the result path instead of opening it")]
         print: bool,
     },
 }
@@ -303,27 +382,33 @@ pub enum RunsCommand {
 #[derive(Debug, Args)]
 pub struct SkillsArgs {
     #[command(subcommand)]
-    pub command: SkillsCommand,
+    pub command: Option<SkillsCommand>,
 }
 
 #[derive(Debug, Subcommand)]
 pub enum SkillsCommand {
+    #[command(about = "List bundled skills / 列出内置 skills")]
     List,
-    Show {
-        name: String,
-    },
+    #[command(about = "Show one skill / 展示单个 skill")]
+    Show { name: String },
+    #[command(about = "Export one skill / 导出单个 skill")]
     Export {
         name: String,
 
-        #[arg(long)]
+        #[arg(long, help = "Target directory for the exported skill")]
         target: PathBuf,
     },
+    #[command(about = "Install all bundled skills / 安装所有内置 skills")]
     Install {
-        #[arg(long)]
+        #[arg(long, help = "Target directory for installed skills")]
         target: PathBuf,
     },
+    #[command(about = "Check installed skills / 检查已安装 skills")]
     Doctor {
-        #[arg(long)]
+        #[arg(
+            long,
+            help = "Target directory to check (defaults to ~/.agents/skills)"
+        )]
         target: Option<PathBuf>,
     },
 }

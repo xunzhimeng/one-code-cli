@@ -11,7 +11,9 @@ use crate::output;
 pub struct RunRecord {
     pub run_id: String,
     pub session_id: String,
+    #[serde(rename = "agent", alias = "profile", alias = "agent_alias")]
     pub profile: String,
+    #[serde(rename = "cli", alias = "backend", alias = "cli_type")]
     pub backend: String,
     pub model: Option<String>,
     pub model_source: String,
@@ -31,7 +33,9 @@ pub struct RunRecord {
 pub struct RunIndexEntry {
     pub run_id: String,
     pub session_id: String,
+    #[serde(rename = "agent", alias = "profile", alias = "agent_alias")]
     pub profile: String,
+    #[serde(rename = "cli", alias = "backend", alias = "cli_type")]
     pub backend: String,
     pub cwd: PathBuf,
     pub success: bool,
@@ -68,7 +72,7 @@ pub fn list(doc_root: &Path, limit: usize) -> OccResult<Vec<RunIndexEntry>> {
     }
     let text = fs::read_to_string(&path).map_err(|error| {
         OccError::io(
-            "config_parse_failed",
+            "run_index_error",
             format!("Failed to read '{}'", output::display_path(&path)),
             error,
         )
@@ -102,7 +106,7 @@ pub fn append_json_line<T: Serialize>(path: &Path, value: &T) -> OccResult<()> {
     }
     let line = serde_json::to_string(value).map_err(|error| {
         OccError::new(
-            "config_parse_failed",
+            "serialization_failed",
             format!("Failed to serialize JSON: {}", error),
         )
     })?;

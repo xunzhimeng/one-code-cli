@@ -26,7 +26,9 @@ pub struct BackendSpec {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TemplateContext {
+    #[serde(rename = "agent")]
     pub profile: String,
+    #[serde(rename = "cli")]
     pub backend: String,
     pub model: Option<String>,
     pub cwd: PathBuf,
@@ -64,7 +66,7 @@ pub fn require(name: &str) -> OccResult<&'static BackendSpec> {
     get(name).ok_or_else(|| {
         OccError::new(
             "backend_not_found",
-            format!("Backend '{}' was not found.", name),
+            format!("CLI '{}' was not found.", name),
         )
     })
 }
@@ -156,6 +158,8 @@ pub fn render_list(values: &[String], context: &TemplateContext) -> Vec<String> 
 pub fn render(value: &str, context: &TemplateContext) -> String {
     let mut rendered = value.to_string();
     let replacements = [
+        ("{agent_alias}", context.profile.as_str()),
+        ("{cli_type}", context.backend.as_str()),
         ("{profile}", context.profile.as_str()),
         ("{backend}", context.backend.as_str()),
         ("{model}", context.model.as_deref().unwrap_or("")),
@@ -204,7 +208,7 @@ fn builtin_args(
         return Err(OccError::new(
             "child_process_failed",
             format!(
-                "Backend '{}' does not support interactive mode.",
+                "CLI '{}' does not support interactive mode.",
                 backend.name
             ),
         ));
@@ -213,7 +217,7 @@ fn builtin_args(
         return Err(OccError::new(
             "child_process_failed",
             format!(
-                "Backend '{}' does not support non-interactive mode.",
+                "CLI '{}' does not support non-interactive mode.",
                 backend.name
             ),
         ));
@@ -221,7 +225,7 @@ fn builtin_args(
     if resume && !backend.supports_resume && profile.resume_args.is_empty() {
         return Err(OccError::new(
             "resume_unsupported",
-            format!("Profile '{}' does not support native resume.", profile.name),
+            format!("Agent '{}' does not support native resume.", profile.name),
         ));
     }
 
@@ -272,7 +276,32 @@ fn builtin_args(
     match prompt_transport {
         PromptVia::Arg => {
             if let Some(prompt) = &context.prompt {
-                args.push(prompt.clone());
+                let os_limit = os_arg_byte_limit();
+                if prompt.len() > os_limit {
+                    // Prompt exceeds OS command-line length limit — try file indirection fallback.
+                    if let Some(template) = backend.file_indirection_template {
+                        eprintln!(
+                            "warning: prompt length ({} bytes) exceeds OS argument limit ({} bytes), \
+                             falling back to file indirection.",
+                            prompt.len(),
+                            os_limit
+                        );
+                        args.push(render(template, context));
+                    } else {
+                        return Err(OccError::new(
+                            "prompt_too_large",
+                            format!(
+                                "Prompt length ({} bytes) exceeds OS argument limit ({} bytes) \
+                                 and CLI '{}' does not support file indirection.",
+                                prompt.len(),
+                                os_limit,
+                                backend.name
+                            ),
+                        ));
+                    }
+                } else {
+                    args.push(prompt.clone());
+                }
             }
         }
         PromptVia::File => {
@@ -286,7 +315,7 @@ fn builtin_args(
                     OccError::new(
                         "prompt_transport_unsupported",
                         format!(
-                            "Backend '{}' does not define a file indirection prompt template.",
+                            "CLI '{}' does not define a file indirection prompt template.",
                             backend.name
                         ),
                     )
@@ -355,6 +384,17 @@ fn direct_arg_max_chars() -> usize {
         1800
     } else {
         8000
+    }
+}
+
+/// Maximum safe byte length for a single CLI argument on the current OS.
+/// Windows: CreateProcess has a 32767 char limit, but cmd.exe is limited to 8191.
+/// Unix: ARG_MAX is typically 2097152 but individual arg limits are lower (~131072).
+fn os_arg_byte_limit() -> usize {
+    if cfg!(windows) {
+        8191
+    } else {
+        131_072
     }
 }
 

@@ -33,7 +33,7 @@ pub fn get(name: &str) -> Option<&'static SkillTemplate> {
 pub fn require(name: &str) -> OccResult<&'static SkillTemplate> {
     get(name).ok_or_else(|| {
         OccError::new(
-            "config_not_found",
+            "skill_not_found",
             format!("Skill '{}' was not found.", name),
         )
     })

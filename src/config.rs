@@ -59,6 +59,7 @@ pub struct Profile {
     pub name: String,
     #[serde(default)]
     pub aliases: Vec<String>,
+    #[serde(rename = "cli_type")]
     pub backend: String,
     pub command: Option<String>,
     pub path: Option<PathBuf>,
@@ -84,30 +85,59 @@ pub struct Profile {
     pub builtin: bool,
 }
 
+impl Profile {
+    fn builtin_new(name: &str, prompt_via: Option<PromptVia>) -> Self {
+        Self {
+            name: name.to_string(),
+            aliases: Vec::new(),
+            backend: name.to_string(),
+            command: Some(default_command_name(name).to_string()),
+            path: None,
+            model: None,
+            default_timeout: None,
+            config_dir: None,
+            env: BTreeMap::new(),
+            args_strategy: ArgsStrategy::Builtin,
+            args: Vec::new(),
+            extra_args: Vec::new(),
+            prompt_via,
+            resume_args: Vec::new(),
+            interactive_args: Vec::new(),
+            non_interactive_args: Vec::new(),
+            builtin: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ConfigFile {
     pub version: Option<u32>,
+    #[serde(rename = "default_agent")]
     pub default_profile: Option<String>,
     pub doc_root: Option<PathBuf>,
     pub proxy: Option<ProxyConfig>,
     pub timeouts: Option<TimeoutsConfig>,
-    #[serde(default)]
+    #[serde(rename = "cli_type_defaults", default)]
     pub backend_defaults: BTreeMap<String, String>,
-    #[serde(default)]
+    #[serde(rename = "cli_type_aliases", default)]
     pub backend_aliases: BTreeMap<String, String>,
-    #[serde(default)]
+    #[serde(rename = "agents", default)]
     pub profiles: Vec<Profile>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct EffectiveConfig {
     pub version: u32,
+    #[serde(rename = "default_agent")]
     pub default_profile: Option<String>,
     pub doc_root: PathBuf,
     pub proxy: ProxyConfig,
     pub timeouts: TimeoutsConfig,
+    #[serde(rename = "cli_type_defaults")]
     pub backend_defaults: BTreeMap<String, String>,
+    #[serde(rename = "cli_type_aliases")]
     pub backend_aliases: BTreeMap<String, String>,
+    #[serde(rename = "agents")]
     pub profiles: Vec<Profile>,
     pub loaded_paths: Vec<PathBuf>,
     pub search_paths: Vec<PathBuf>,
@@ -138,7 +168,7 @@ impl EffectiveConfig {
             return self.profile(name).cloned().ok_or_else(|| {
                 OccError::new(
                     "profile_not_found",
-                    format!("Profile '{}' was not found.", name),
+                    format!("Agent '{}' was not found.", name),
                 )
             });
         }
@@ -154,7 +184,7 @@ impl EffectiveConfig {
                     OccError::new(
                         "profile_not_found",
                         format!(
-                            "Backend '{}' default profile '{}' was not found.",
+                            "CLI '{}' default agent '{}' was not found.",
                             backend_name, default_profile
                         ),
                     )
@@ -168,22 +198,29 @@ impl EffectiveConfig {
                 .ok_or_else(|| {
                     OccError::new(
                         "backend_not_found",
-                        format!("Backend '{}' was not found.", backend_name),
+                        format!("CLI '{}' was not found.", backend_name),
                     )
                 });
         }
 
         let default_profile = self.default_profile.as_deref().ok_or_else(|| {
+            let available: Vec<&str> = self.profiles.iter().map(|p| p.name.as_str()).collect();
             OccError::new(
-                "config_not_found",
-                "No --profile, --backend, or default_profile was provided.",
+                "no_cli_selected",
+                format!(
+                    "No --agent, --cli, or default_agent was provided.\n  \
+                     Available agents: {}\n  \
+                     Set default_agent in ~/.occ/config.toml or pass --cli <name>.\n  \
+                     Run `occ config init --user` to create a config file.",
+                    available.join(", ")
+                ),
             )
         })?;
 
         self.profile(default_profile).cloned().ok_or_else(|| {
             OccError::new(
                 "profile_not_found",
-                format!("Default profile '{}' was not found.", default_profile),
+                format!("Default agent '{}' was not found.", default_profile),
             )
         })
     }
@@ -230,6 +267,7 @@ pub fn load(config_arg: Option<&PathBuf>, cwd: &Path) -> OccResult<EffectiveConf
                 error,
             )
         })?;
+        let text = migrate_legacy_config_toml(&text);
         let mut config: ConfigFile = toml::from_str(&text).map_err(|error| {
             OccError::new(
                 "config_parse_failed",
@@ -246,7 +284,7 @@ pub fn load(config_arg: Option<&PathBuf>, cwd: &Path) -> OccResult<EffectiveConf
 
     let mut version = 1;
     let mut default_profile = None;
-    let mut doc_root = PathBuf::from(".occ");
+    let mut doc_root = default_doc_root()?;
     let mut proxy = ProxyConfig::default();
     let mut timeouts = TimeoutsConfig::default();
     let mut backend_defaults = BTreeMap::new();
@@ -318,7 +356,7 @@ pub fn default_user_config_path() -> OccResult<PathBuf> {
         .map(|base_dirs| base_dirs.home_dir().join(".occ").join("config.toml"))
         .ok_or_else(|| {
             OccError::new(
-                "config_not_found",
+                "home_not_found",
                 "Unable to locate the user home directory.",
             )
         })
@@ -327,7 +365,7 @@ pub fn default_user_config_path() -> OccResult<PathBuf> {
 pub fn write_sample_config(path: &Path, force: bool) -> OccResult<()> {
     if path.exists() && !force {
         return Err(OccError::new(
-            "config_parse_failed",
+            "config_already_exists",
             format!(
                 "Config file '{}' already exists. Use --force to overwrite it.",
                 output::display_path(path)
@@ -354,11 +392,58 @@ pub fn write_sample_config(path: &Path, force: bool) -> OccResult<()> {
     })
 }
 
+fn migrate_legacy_config_toml(text: &str) -> String {
+    let Ok(mut value) = text.parse::<toml::Value>() else {
+        return text.to_string();
+    };
+    let Some(table) = value.as_table_mut() else {
+        return text.to_string();
+    };
+
+    migrate_table_key(table, "default_target", "default_agent");
+    migrate_table_key(table, "default_profile", "default_agent");
+    migrate_table_key(table, "default_agent_alias", "default_agent");
+    migrate_table_key(table, "cli_defaults", "cli_type_defaults");
+    migrate_table_key(table, "backend_defaults", "cli_type_defaults");
+    migrate_table_key(table, "cli_aliases", "cli_type_aliases");
+    migrate_table_key(table, "backend_aliases", "cli_type_aliases");
+    migrate_table_key(table, "targets", "agents");
+    migrate_table_key(table, "profiles", "agents");
+    migrate_table_key(table, "agent_aliases", "agents");
+
+    if let Some(agents) = table
+        .get_mut("agents")
+        .and_then(toml::Value::as_array_mut)
+    {
+        for entry in agents {
+            if let Some(entry_table) = entry.as_table_mut() {
+                migrate_table_key(entry_table, "cli", "cli_type");
+                migrate_table_key(entry_table, "backend", "cli_type");
+            }
+        }
+    }
+
+    toml::to_string_pretty(&value).unwrap_or_else(|_| text.to_string())
+}
+
+fn migrate_table_key(
+    table: &mut toml::map::Map<String, toml::Value>,
+    legacy_key: &str,
+    new_key: &str,
+) {
+    if table.contains_key(new_key) {
+        table.remove(legacy_key);
+        return;
+    }
+    if let Some(value) = table.remove(legacy_key) {
+        table.insert(new_key.to_string(), value);
+    }
+}
+
 pub fn sample_config_toml() -> String {
     format!(
         r#"version = 1
-default_profile = "claude"
-doc_root = ".occ"
+default_agent = "claude"
 
 [proxy]
 enabled = true
@@ -367,47 +452,47 @@ env_keys = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", 
 [timeouts]
 default_run = "none"
 
-[backend_defaults]
+[cli_type_defaults]
 claude = "claude"
 codex = "codex"
 opencode = "opencode"
 gemini = "gemini"
 
-[backend_aliases]
+[cli_type_aliases]
 c = "claude"
 x = "codex"
 o = "opencode"
 g = "gemini"
 
-[[profiles]]
+[[agents]]
 name = "claude"
-backend = "claude"
+cli_type = "claude"
 command = "{}"
 args_strategy = "builtin"
 prompt_via = "stdin"
 non_interactive_args = ["--print", "--dangerously-skip-permissions"]
 interactive_args = ["--dangerously-skip-permissions"]
 
-[[profiles]]
+[[agents]]
 name = "codex"
-backend = "codex"
+cli_type = "codex"
 command = "{}"
 args_strategy = "builtin"
 prompt_via = "stdin"
 non_interactive_args = ["exec", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check"]
 interactive_args = ["--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check"]
 
-[[profiles]]
+[[agents]]
 name = "opencode"
-backend = "opencode"
+cli_type = "opencode"
 command = "{}"
 args_strategy = "builtin"
 prompt_via = "arg-or-file-indirection"
 non_interactive_args = ["run", "--dangerously-skip-permissions"]
 
-[[profiles]]
+[[agents]]
 name = "gemini"
-backend = "gemini"
+cli_type = "gemini"
 command = "{}"
 args_strategy = "builtin"
 prompt_via = "arg-or-file-indirection"
@@ -419,6 +504,17 @@ interactive_args = ["--yolo", "--skip-trust"]
         default_command_name("opencode"),
         default_command_name("gemini")
     )
+}
+
+fn default_doc_root() -> OccResult<PathBuf> {
+    BaseDirs::new()
+        .map(|base_dirs| base_dirs.home_dir().join(".occ"))
+        .ok_or_else(|| {
+            OccError::new(
+                "home_not_found",
+                "Unable to locate the user home directory for the default doc_root.",
+            )
+        })
 }
 
 pub fn editable_config_toml(config: &EffectiveConfig) -> OccResult<String> {
@@ -434,7 +530,7 @@ pub fn editable_config_toml(config: &EffectiveConfig) -> OccResult<String> {
     };
     toml::to_string_pretty(&file).map_err(|error| {
         OccError::new(
-            "config_parse_failed",
+            "serialization_failed",
             format!("Failed to serialize editable config: {}", error),
         )
     })
@@ -442,82 +538,10 @@ pub fn editable_config_toml(config: &EffectiveConfig) -> OccResult<String> {
 
 pub fn builtin_profiles() -> Vec<Profile> {
     vec![
-        Profile {
-            name: "claude".to_string(),
-            aliases: Vec::new(),
-            backend: "claude".to_string(),
-            command: Some(default_command_name("claude").to_string()),
-            path: None,
-            model: None,
-            default_timeout: None,
-            config_dir: None,
-            env: BTreeMap::new(),
-            args_strategy: ArgsStrategy::Builtin,
-            args: Vec::new(),
-            extra_args: Vec::new(),
-            prompt_via: Some(PromptVia::Stdin),
-            resume_args: Vec::new(),
-            interactive_args: Vec::new(),
-            non_interactive_args: Vec::new(),
-            builtin: true,
-        },
-        Profile {
-            name: "codex".to_string(),
-            aliases: Vec::new(),
-            backend: "codex".to_string(),
-            command: Some(default_command_name("codex").to_string()),
-            path: None,
-            model: None,
-            default_timeout: None,
-            config_dir: None,
-            env: BTreeMap::new(),
-            args_strategy: ArgsStrategy::Builtin,
-            args: Vec::new(),
-            extra_args: Vec::new(),
-            prompt_via: Some(PromptVia::Stdin),
-            resume_args: Vec::new(),
-            interactive_args: Vec::new(),
-            non_interactive_args: Vec::new(),
-            builtin: true,
-        },
-        Profile {
-            name: "opencode".to_string(),
-            aliases: Vec::new(),
-            backend: "opencode".to_string(),
-            command: Some(default_command_name("opencode").to_string()),
-            path: None,
-            model: None,
-            default_timeout: None,
-            config_dir: None,
-            env: BTreeMap::new(),
-            args_strategy: ArgsStrategy::Builtin,
-            args: Vec::new(),
-            extra_args: Vec::new(),
-            prompt_via: None,
-            resume_args: Vec::new(),
-            interactive_args: Vec::new(),
-            non_interactive_args: Vec::new(),
-            builtin: true,
-        },
-        Profile {
-            name: "gemini".to_string(),
-            aliases: Vec::new(),
-            backend: "gemini".to_string(),
-            command: Some(default_command_name("gemini").to_string()),
-            path: None,
-            model: None,
-            default_timeout: None,
-            config_dir: None,
-            env: BTreeMap::new(),
-            args_strategy: ArgsStrategy::Builtin,
-            args: Vec::new(),
-            extra_args: Vec::new(),
-            prompt_via: None,
-            resume_args: Vec::new(),
-            interactive_args: Vec::new(),
-            non_interactive_args: Vec::new(),
-            builtin: true,
-        },
+        Profile::builtin_new("claude", Some(PromptVia::Stdin)),
+        Profile::builtin_new("codex", Some(PromptVia::Stdin)),
+        Profile::builtin_new("opencode", None),
+        Profile::builtin_new("gemini", None),
     ]
 }
 

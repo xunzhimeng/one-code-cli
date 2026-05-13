@@ -1,6 +1,6 @@
 use std::env;
 use std::fs::{self, File, OpenOptions};
-use std::io::{ErrorKind, Read, Write};
+use std::io::{self, ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread::{self, JoinHandle};
@@ -11,14 +11,17 @@ use serde::Serialize;
 use wait_timeout::ChildExt;
 
 use crate::backend::{self, CommandPlan, TemplateContext};
-use crate::cli::{OutputMode, RunArgs, SessionResumeArgs};
+use crate::cli::{CommonArgs, OutputMode, RunArgs, SessionResumeArgs};
 use crate::config::{self, EffectiveConfig, Profile, ProxyConfig};
 use crate::documents::{self, RunPaths};
 use crate::error::{OccError, OccResult};
+use crate::i18n;
 use crate::ids;
 use crate::output::{self, print_run_response, ErrorBody, RunResponse};
+
 use crate::run_record::{self, RunRecord};
 use crate::session::{self, SessionRecord};
+use colored::Colorize;
 
 #[derive(Debug, Clone)]
 struct PromptData {
@@ -49,22 +52,25 @@ pub fn run(config_arg: Option<&PathBuf>, args: RunArgs) -> OccResult<()> {
 
 pub fn resume_session(config_arg: Option<&PathBuf>, args: SessionResumeArgs) -> OccResult<()> {
     let run_args = RunArgs {
-        profile: None,
-        backend: None,
-        model: args.model,
-        cwd: args.cwd,
-        prompt: args.prompt,
-        prompt_file: args.prompt_file,
-        stdin: args.stdin,
+        common: CommonArgs {
+            profile: None,
+            backend: None,
+            model: args.model,
+            cwd: args.cwd,
+            prompt: args.prompt,
+            prompt_file: args.prompt_file,
+            stdin: args.stdin,
+            session: Some(args.session_id),
+            resume: true,
+            doc_root: args.doc_root,
+            timeout: None,
+            dry_run: args.dry_run,
+            child_args: args.child_args,
+        },
+        stream: args.stream,
         interactive: false,
         non_interactive: true,
-        session: Some(args.session_id),
-        resume: true,
-        doc_root: args.doc_root,
         output: args.output,
-        timeout: None,
-        dry_run: args.dry_run,
-        child_args: args.child_args,
     };
     run(config_arg, run_args)
 }
@@ -84,10 +90,11 @@ pub fn run_once(config_arg: Option<&PathBuf>, args: RunArgs) -> OccResult<Option
 fn execute_run(config_arg: Option<&PathBuf>, args: RunArgs) -> OccResult<Option<RunExecution>> {
     if args.interactive && args.non_interactive {
         return Err(OccError::new(
-            "child_process_failed",
+            "invalid_argument",
             "--interactive and --non-interactive cannot be used together.",
         ));
     }
+    let interactive = resolve_interactive_mode(&args);
 
     let mut cwd = resolve_cwd(args.cwd.as_ref())?;
     let mut config = config::load(config_arg, &cwd)?;
@@ -96,8 +103,15 @@ fn execute_run(config_arg: Option<&PathBuf>, args: RunArgs) -> OccResult<Option<
         &args.prompt,
         args.prompt_file.as_ref(),
         args.stdin,
-        args.interactive,
+        interactive,
     )?;
+
+    if interactive && !args.interactive && prompt.text.is_none() {
+        eprintln!(
+            "Entering interactive mode (no prompt provided). \
+             Use --non-interactive with --prompt/--prompt-file/--stdin for scripted runs."
+        );
+    }
 
     let mut existing_session = if args.resume {
         if let Some(session_id) = &args.session {
@@ -124,7 +138,7 @@ fn execute_run(config_arg: Option<&PathBuf>, args: RunArgs) -> OccResult<Option<
     if args.resume && !backend_spec.supports_resume && profile.resume_args.is_empty() {
         return Err(OccError::new(
             "resume_unsupported",
-            format!("Profile '{}' does not support native resume.", profile.name),
+            format!("Agent '{}' does not support native resume.", profile.name),
         ));
     }
 
@@ -139,7 +153,7 @@ fn execute_run(config_arg: Option<&PathBuf>, args: RunArgs) -> OccResult<Option<
             OccError::new(
                 "session_not_found",
                 format!(
-                    "No latest session was found for profile '{}' and cwd '{}'.",
+                    "No latest session was found for agent '{}' and cwd '{}'.",
                     profile.name,
                     output::display_path(&cwd)
                 ),
@@ -184,7 +198,7 @@ fn execute_run(config_arg: Option<&PathBuf>, args: RunArgs) -> OccResult<Option<
     let mut plan = backend::build_command_plan(
         &profile,
         &context,
-        args.interactive,
+        interactive,
         args.resume,
         &args.child_args,
     )?;
@@ -198,6 +212,7 @@ fn execute_run(config_arg: Option<&PathBuf>, args: RunArgs) -> OccResult<Option<
             &plan,
             &model_source,
             timeout_value.as_deref(),
+            args.stream,
             args.output,
         )?;
         return Ok(None);
@@ -217,10 +232,16 @@ fn execute_run(config_arg: Option<&PathBuf>, args: RunArgs) -> OccResult<Option<
         .map_err(|error| write_prompt_error(&paths.prompt_md, error))?;
     let started_at = Utc::now();
     let timeout = parse_timeout(timeout_value.as_deref())?;
-    let child = if args.interactive {
+    let child = if interactive {
         execute_interactive(&plan, timeout)?
     } else {
-        execute_non_interactive(&plan, timeout, &paths.stdout_log, &paths.stderr_log)?
+        execute_non_interactive(
+            &plan,
+            timeout,
+            &paths.stdout_log,
+            &paths.stderr_log,
+            args.stream,
+        )?
     };
     let finished_at = Utc::now();
     let timed_out = child.timed_out;
@@ -235,7 +256,7 @@ fn execute_run(config_arg: Option<&PathBuf>, args: RunArgs) -> OccResult<Option<
         model_source: model_source.clone(),
         cwd: cwd.clone(),
         prompt_source: prompt.source.clone(),
-        interactive: args.interactive,
+        interactive,
         timeout: timeout_value.clone(),
         success,
         exit_code: child.exit_code,
@@ -296,6 +317,16 @@ fn execute_run(config_arg: Option<&PathBuf>, args: RunArgs) -> OccResult<Option<
     }))
 }
 
+fn resolve_interactive_mode(args: &RunArgs) -> bool {
+    if args.interactive {
+        return true;
+    }
+    if args.non_interactive {
+        return false;
+    }
+    args.prompt.is_none() && args.prompt_file.is_none() && !args.stdin
+}
+
 fn resolve_profile_for_run(
     config: &EffectiveConfig,
     args: &RunArgs,
@@ -315,13 +346,13 @@ fn resolve_model(
     profile: &Profile,
 ) -> (Option<String>, String) {
     if let Some(model) = &args.model {
-        return (Some(model.clone()), "cli".to_string());
+        return (Some(model.clone()), "cli-arg".to_string());
     }
     if let Some(model) = session.and_then(|session| session.model.clone()) {
         return (Some(model), "session".to_string());
     }
     if let Some(model) = &profile.model {
-        return (Some(model.clone()), "profile".to_string());
+        return (Some(model.clone()), "agent".to_string());
     }
     (None, "none".to_string())
 }
@@ -411,9 +442,25 @@ fn read_prompt(
     }
 
     if stdin {
-        let mut text = String::new();
-        std::io::stdin()
-            .read_to_string(&mut text)
+        let (tx, rx) = std::sync::mpsc::channel();
+        thread::spawn(move || {
+            let mut text = String::new();
+            let result = io::stdin().read_to_string(&mut text);
+            let _ = tx.send(result.map(|_| text));
+        });
+        let timeout = Duration::from_secs(30);
+        let text = rx
+            .recv_timeout(timeout)
+            .map_err(|_| {
+                OccError::new(
+                    "stdin_timeout",
+                    format!(
+                        "Timed out after {}s waiting for stdin input. \
+                     Ensure the pipe sends EOF (e.g. echo prompt | occ run --stdin ...).",
+                        timeout.as_secs()
+                    ),
+                )
+            })?
             .map_err(|error| {
                 OccError::io(
                     "invalid_prompt_source",
@@ -440,6 +487,7 @@ fn execute_non_interactive(
     timeout: Option<Duration>,
     stdout_log: &Path,
     stderr_log: &Path,
+    stream: bool,
 ) -> OccResult<ChildResult> {
     let stdout_file = open_stream_log(stdout_log)?;
     let stderr_file = open_stream_log(stderr_log)?;
@@ -465,8 +513,8 @@ fn execute_non_interactive(
         )
     })?;
 
-    let stdout_reader = spawn_stream_reader("stdout", child.stdout.take(), stdout_file);
-    let stderr_reader = spawn_stream_reader("stderr", child.stderr.take(), stderr_file);
+    let stdout_reader = spawn_stream_reader("stdout", child.stdout.take(), stdout_file, stream);
+    let stderr_reader = spawn_stream_reader("stderr", child.stderr.take(), stderr_file, stream);
 
     if let Some(input) = &plan.prompt_stdin {
         if let Some(mut stdin) = child.stdin.take() {
@@ -619,7 +667,12 @@ fn open_stream_log(path: &Path) -> OccResult<File> {
         })
 }
 
-fn spawn_stream_reader<R>(name: &'static str, pipe: Option<R>, mut file: File) -> StreamReader
+fn spawn_stream_reader<R>(
+    name: &'static str,
+    pipe: Option<R>,
+    mut file: File,
+    stream: bool,
+) -> StreamReader
 where
     R: Read + Send + 'static,
 {
@@ -635,6 +688,11 @@ where
                 bytes.extend_from_slice(&chunk[..count]);
                 file.write_all(&chunk[..count])?;
                 file.flush()?;
+                if stream {
+                    let mut stderr = io::stderr().lock();
+                    stderr.write_all(&chunk[..count])?;
+                    stderr.flush()?;
+                }
             }
             Ok(bytes)
         })
@@ -821,6 +879,7 @@ fn print_dry_run(
     plan: &CommandPlan,
     model_source: &str,
     timeout: Option<&str>,
+    stream: bool,
     output: OutputMode,
 ) -> OccResult<()> {
     #[derive(Serialize)]
@@ -834,11 +893,13 @@ fn print_dry_run(
         prompt_file: Option<&'a PathBuf>,
         prompt_transport: crate::config::PromptVia,
         timeout: Option<&'a str>,
+        stream: bool,
     }
 
     #[derive(Serialize)]
     struct DryRun<'a> {
         success: bool,
+        #[serde(rename = "agent")]
         profile: &'a Profile,
         context: &'a TemplateContext,
         model_source: &'a str,
@@ -860,6 +921,7 @@ fn print_dry_run(
             prompt_file: plan.prompt_file.as_ref(),
             prompt_transport: plan.prompt_transport,
             timeout,
+            stream,
         },
     };
 
@@ -867,36 +929,81 @@ fn print_dry_run(
         OutputMode::Json => {
             let text = serde_json::to_string_pretty(&dry_run).map_err(|error| {
                 OccError::new(
-                    "config_parse_failed",
+                    "serialization_failed",
                     format!("Failed to serialize dry-run JSON: {}", error),
                 )
             })?;
             println!("{}", output::display_text(&text));
         }
         _ => {
-            println!("profile: {}", profile.name);
-            println!("backend: {}", profile.backend);
-            println!("model_source: {}", model_source);
-            println!("cwd: {}", output::display_path(&plan.cwd));
+            let t = i18n::t;
+            println!();
+            println!("  {}", t("dry.title").bold());
+            println!("  {}", "─".repeat(40).dimmed());
             println!(
-                "command: {} {}",
-                output::display_path(&plan.executable),
-                plan.args.join(" ")
+                "  {:<16} {}",
+                t("dry.profile").dimmed(),
+                profile.name.cyan()
+            );
+            println!(
+                "  {:<16} {}",
+                t("dry.backend").dimmed(),
+                profile.backend.cyan()
+            );
+            println!("  {:<16} {}", t("dry.model_source").dimmed(), model_source);
+            println!(
+                "  {:<16} {}",
+                t("dry.cwd").dimmed(),
+                output::display_path(&plan.cwd)
+            );
+            println!(
+                "  {:<16} {} {}",
+                t("dry.command").dimmed(),
+                output::display_path(&plan.executable).cyan(),
+                plan.args.join(" ").dimmed()
             );
             if !plan.env.is_empty() {
                 println!(
-                    "env_keys: {}",
-                    plan.env.keys().cloned().collect::<Vec<_>>().join(",")
+                    "  {:<16} {}",
+                    t("dry.env_keys").dimmed(),
+                    plan.env.keys().cloned().collect::<Vec<_>>().join(", ")
                 );
             }
             if !plan.env_remove.is_empty() {
-                println!("env_removed: {}", plan.env_remove.join(","));
+                println!(
+                    "  {:<16} {}",
+                    t("dry.env_removed").dimmed(),
+                    plan.env_remove.join(", ")
+                );
             }
-            println!("prompt_transport: {:?}", plan.prompt_transport);
+            println!(
+                "  {:<16} {:?}",
+                t("dry.prompt_transport").dimmed(),
+                plan.prompt_transport
+            );
             if let Some(prompt_file) = &plan.prompt_file {
-                println!("prompt_file: {}", output::display_path(prompt_file));
+                println!(
+                    "  {:<16} {}",
+                    t("dry.prompt_file").dimmed(),
+                    output::display_path(prompt_file)
+                );
             }
-            println!("timeout: {}", timeout.unwrap_or("none"));
+            println!(
+                "  {:<16} {}",
+                t("dry.timeout").dimmed(),
+                timeout.unwrap_or(t("dry.timeout_none"))
+            );
+            println!(
+                "  {:<16} {}",
+                t("dry.stream").dimmed(),
+                if stream {
+                    t("dry.stream_on").green().to_string()
+                } else {
+                    t("dry.stream_off").to_string()
+                }
+            );
+            println!("  {}", "─".repeat(40).dimmed());
+            println!();
         }
     }
     Ok(())

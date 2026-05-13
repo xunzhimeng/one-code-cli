@@ -58,14 +58,14 @@ fn write_html_with_metadata(
 pub fn serve(initial_toml: &str, save_path: &Path) -> OccResult<()> {
     let listener = TcpListener::bind(("127.0.0.1", 0)).map_err(|error| {
         OccError::io(
-            "child_process_failed",
+            "network_error",
             "Failed to start config UI server on 127.0.0.1",
             error,
         )
     })?;
     let address = listener.local_addr().map_err(|error| {
         OccError::io(
-            "child_process_failed",
+            "network_error",
             "Failed to read config UI server address",
             error,
         )
@@ -77,7 +77,7 @@ pub fn serve(initial_toml: &str, save_path: &Path) -> OccResult<()> {
     for stream in listener.incoming() {
         let stream = stream.map_err(|error| {
             OccError::io(
-                "child_process_failed",
+                "network_error",
                 "Failed to accept config UI connection",
                 error,
             )
@@ -99,19 +99,19 @@ fn html_with_save_path(
     metadata: Option<&ConfigHtmlMetadata>,
 ) -> String {
     let save_button = if save_path.is_some() {
-        r#"<button id="save-config">Save to Config File</button>"#
+        r#"<button id="save-config" aria-label="Save configuration to file">Save to Config File</button>"#
     } else {
         ""
     };
     let close_button = if save_path.is_some() {
-        r#"<button id="close-server" class="secondary">Close Server</button>"#
+        r#"<button id="close-server" class="secondary" aria-label="Stop the config server">Close Server</button>"#
     } else {
         ""
     };
     let save_path_text = save_path
         .map(|path| {
             format!(
-                "<p>Saving target: <code>{}</code></p>",
+                "<p>Saving config: <code>{}</code></p>",
                 escape_html(&output::display_path(path))
             )
         })
@@ -126,10 +126,10 @@ fn html_with_save_path(
         .unwrap_or_else(|| "null".to_string());
     let metadata_block = metadata.map(render_metadata).unwrap_or_default();
     let static_buttons = if save_path.is_none() {
-        r#"<button id="open-file" class="secondary">Open Config File</button>
-<button id="save-opened" class="secondary">Save to Opened File</button>
-<button id="copy-path" class="secondary">Copy Recommended Path</button>
-<button id="copy-init" class="secondary">Copy Init Command</button>"#
+        r#"<button id="open-file" class="secondary" aria-label="Open a config file from disk">Open Config File</button>
+<button id="save-opened" class="secondary" aria-label="Save to the previously opened file">Save to Opened File</button>
+<button id="copy-path" class="secondary" aria-label="Copy recommended config path">Copy Recommended Path</button>
+<button id="copy-init" class="secondary" aria-label="Copy init command">Copy Init Command</button>"#
     } else {
         ""
     };
@@ -171,8 +171,9 @@ button.secondary {{ background: #334155; color: #e2e8f0; }}
 <button id="save" class="secondary">Save As</button>
 {}
 </div>
-<textarea id="toml" spellcheck="false">{}</textarea>
-<p id="status" class="status"></p>
+<label for="toml" class="sr-only">Configuration TOML</label>
+<textarea id="toml" spellcheck="false" aria-label="Configuration TOML editor">{}</textarea>
+<p id="status" class="status" role="status" aria-live="polite"></p>
 </section>
 </main>
 <script>
@@ -184,7 +185,7 @@ function setStatus(text) {{ status.textContent = text; setTimeout(() => status.t
 function validateTomlText() {{
   const text = textarea.value.trim();
   if (!text) {{ setStatus('Config TOML is empty.'); return false; }}
-  if (!text.includes('version') && !text.includes('[[profiles]]')) {{ setStatus('Config should contain version or profiles. Run occ config validate after saving.'); }}
+  if (!text.includes('version') && !text.includes('[[agents]]')) {{ setStatus('Config should contain version or agents. Run occ config validate after saving.'); }}
   return true;
 }}
 const saveConfig = document.getElementById('save-config');
@@ -284,10 +285,10 @@ fn render_metadata(metadata: &ConfigHtmlMetadata) -> String {
     let search_paths = path_list(&metadata.search_paths);
     format!(
         r#"<div class="metadata">
-<p>Recommended target (<code>{}</code>): <code>{}</code></p>
+<p>Recommended config target (<code>{}</code>): <code>{}</code></p>
 <p>Current cwd: <code>{}</code></p>
 <p>doc_root: <code>{}</code></p>
-<p>default_profile: <code>{}</code></p>
+<p>default_agent: <code>{}</code></p>
 <p>Loaded config paths:</p>
 <pre>{}</pre>
 <p>Search paths:</p>
@@ -338,6 +339,16 @@ fn handle_connection(
         return Ok(false);
     }
     if first_line.starts_with("POST /config ") {
+        // CSRF protection: reject POST requests from unexpected origins.
+        if !is_localhost_origin(&headers) {
+            write_response(
+                &mut stream,
+                "403 Forbidden",
+                "text/plain; charset=utf-8",
+                "Cross-origin POST requests are not allowed.",
+            )?;
+            return Ok(false);
+        }
         let text = String::from_utf8_lossy(body).into_owned();
         if let Err(error) = toml::from_str::<ConfigFile>(&text) {
             write_response(
@@ -373,6 +384,15 @@ fn handle_connection(
         return Ok(false);
     }
     if first_line.starts_with("POST /shutdown ") {
+        if !is_localhost_origin(&headers) {
+            write_response(
+                &mut stream,
+                "403 Forbidden",
+                "text/plain; charset=utf-8",
+                "Cross-origin POST requests are not allowed.",
+            )?;
+            return Ok(false);
+        }
         write_response(
             &mut stream,
             "200 OK",
@@ -395,11 +415,7 @@ fn read_request(stream: &mut TcpStream) -> OccResult<Vec<u8>> {
     let mut buffer = [0_u8; 4096];
     loop {
         let read = stream.read(&mut buffer).map_err(|error| {
-            OccError::io(
-                "child_process_failed",
-                "Failed to read config UI request",
-                error,
-            )
+            OccError::io("network_error", "Failed to read config UI request", error)
         })?;
         if read == 0 {
             break;
@@ -415,7 +431,7 @@ fn read_request(stream: &mut TcpStream) -> OccResult<Vec<u8>> {
         }
         if request.len() > 10 * 1024 * 1024 {
             return Err(OccError::new(
-                "config_parse_failed",
+                "request_too_large",
                 "Config UI request is too large.",
             ));
         }
@@ -457,13 +473,9 @@ fn write_response(
         body.as_bytes().len(),
         body
     );
-    stream.write_all(response.as_bytes()).map_err(|error| {
-        OccError::io(
-            "child_process_failed",
-            "Failed to write config UI response",
-            error,
-        )
-    })
+    stream
+        .write_all(response.as_bytes())
+        .map_err(|error| OccError::io("network_error", "Failed to write config UI response", error))
 }
 
 fn escape_html(value: &str) -> String {
@@ -472,4 +484,36 @@ fn escape_html(value: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+}
+
+/// Check that a POST request originates from localhost.
+/// Accepts if the Origin or Referer header starts with http://127.0.0.1 or http://localhost.
+/// If neither header is present, the request is also accepted (same-origin requests
+/// from some browsers may omit Origin).
+fn is_localhost_origin(headers: &str) -> bool {
+    let origin = headers.lines().find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        if name.eq_ignore_ascii_case("origin") {
+            Some(value.trim())
+        } else {
+            None
+        }
+    });
+    let referer = headers.lines().find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        if name.eq_ignore_ascii_case("referer") {
+            Some(value.trim())
+        } else {
+            None
+        }
+    });
+    match (origin, referer) {
+        (Some(origin), _) => {
+            origin.starts_with("http://127.0.0.1") || origin.starts_with("http://localhost")
+        }
+        (None, Some(referer)) => {
+            referer.starts_with("http://127.0.0.1") || referer.starts_with("http://localhost")
+        }
+        (None, None) => true, // Same-origin requests may omit both headers.
+    }
 }

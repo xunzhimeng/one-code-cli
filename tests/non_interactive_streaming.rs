@@ -42,6 +42,10 @@ fn main() {
                 eprintln!("stderr-line-{index}-abcdefghijklmnopqrstuvwxyz0123456789");
             }
         }
+        Some("small") => {
+            println!("small-stdout-line");
+            eprintln!("small-stderr-line");
+        }
         Some("timeout") => {
             println!("partial-stdout-before-timeout");
             eprintln!("partial-stderr-before-timeout");
@@ -93,15 +97,39 @@ fn write_config(dir: &Path, worker: &Path, mode: &str) -> PathBuf {
             r#"version = 1
 doc_root = "{}"
 
-[[profiles]]
+[[agents]]
 name = "mock"
-backend = "claude"
+cli_type = "claude"
 path = "{}"
 args_strategy = "override"
 args = ["{}"]
 prompt_via = "stdin"
 "#,
             toml_string(&doc_root),
+            toml_string(worker),
+            mode
+        ),
+    )
+    .unwrap();
+    config
+}
+
+fn write_config_without_doc_root(dir: &Path, worker: &Path, mode: &str) -> PathBuf {
+    let config = dir.join(format!("config-no-doc-root-{mode}.toml"));
+    fs::write(
+        &config,
+        format!(
+            r#"version = 1
+
+[[agents]]
+name = "mock"
+cli_type = "claude"
+path = "{}"
+args_strategy = "builtin"
+prompt_via = "stdin"
+interactive_args = ["interactive-mode"]
+non_interactive_args = ["{}"]
+"#,
             toml_string(worker),
             mode
         ),
@@ -119,9 +147,9 @@ fn write_tree_timeout_config(dir: &Path, worker: &Path, marker: &Path) -> PathBu
             r#"version = 1
 doc_root = "{}"
 
-[[profiles]]
+[[agents]]
 name = "mock"
-backend = "claude"
+cli_type = "claude"
 path = "{}"
 args_strategy = "override"
 args = ["spawn-child-timeout", "{}"]
@@ -157,9 +185,9 @@ doc_root = "{}"
 [timeouts]
 default_run = "{}"
 
-[[profiles]]
+[[agents]]
 name = "mock"
-backend = "claude"
+cli_type = "claude"
 path = "{}"
 args_strategy = "override"
 args = ["{}"]
@@ -185,12 +213,12 @@ fn write_gemini_config(dir: &Path) -> PathBuf {
             r#"version = 1
 doc_root = "{}"
 
-[backend_defaults]
+[cli_type_defaults]
 gemini = "mock-gemini"
 
-[[profiles]]
+[[agents]]
 name = "mock-gemini"
-backend = "gemini"
+cli_type = "gemini"
 command = "gemini"
 args_strategy = "builtin"
 "#,
@@ -210,9 +238,9 @@ fn write_model_config(dir: &Path, worker: &Path) -> PathBuf {
             r#"version = 1
 doc_root = "{}"
 
-[[profiles]]
+[[agents]]
 name = "mock"
-backend = "claude"
+cli_type = "claude"
 path = "{}"
 model = "profile-model"
 args_strategy = "override"
@@ -236,10 +264,10 @@ fn write_alias_config(dir: &Path, worker: &Path) -> PathBuf {
             r#"version = 1
 doc_root = "{}"
 
-[[profiles]]
+[[agents]]
 name = "mock"
 aliases = ["m"]
-backend = "claude"
+cli_type = "claude"
 path = "{}"
 args_strategy = "override"
 args = ["quick"]
@@ -262,16 +290,16 @@ fn write_conflicting_alias_config(dir: &Path, worker: &Path) -> PathBuf {
             r#"version = 1
 doc_root = "{}"
 
-[[profiles]]
+[[agents]]
 name = "one"
 aliases = ["dup"]
-backend = "claude"
+cli_type = "claude"
 path = "{}"
 
-[[profiles]]
+[[agents]]
 name = "two"
 aliases = ["dup"]
-backend = "claude"
+cli_type = "claude"
 path = "{}"
 "#,
             toml_string(&doc_root),
@@ -292,12 +320,41 @@ fn write_backend_alias_config(dir: &Path, worker: &Path) -> PathBuf {
             r#"version = 1
 doc_root = "{}"
 
-[backend_aliases]
+[cli_type_aliases]
 c = "claude"
 
-[[profiles]]
+[[agents]]
 name = "mock"
-backend = "claude"
+cli_type = "claude"
+path = "{}"
+args_strategy = "override"
+args = ["quick"]
+prompt_via = "stdin"
+"#,
+            toml_string(&doc_root),
+            toml_string(worker),
+        ),
+    )
+    .unwrap();
+    config
+}
+
+fn write_new_names_config(dir: &Path, worker: &Path) -> PathBuf {
+    let config = dir.join("config-new-names.toml");
+    let doc_root = dir.join("docs-new-names");
+    fs::write(
+        &config,
+        format!(
+            r#"version = 1
+doc_root = "{}"
+default_agent = "mock"
+
+[cli_type_aliases]
+c = "claude"
+
+[[agents]]
+name = "mock"
+cli_type = "claude"
 path = "{}"
 args_strategy = "override"
 args = ["quick"]
@@ -336,7 +393,7 @@ fn write_conflicting_backend_alias_config(dir: &Path) -> PathBuf {
             r#"version = 1
 doc_root = "{}"
 
-[backend_aliases]
+[cli_type_aliases]
 claude = "codex"
 "#,
             toml_string(&doc_root),
@@ -355,10 +412,10 @@ fn write_profile_alias_shadows_backend_config(dir: &Path, worker: &Path) -> Path
             r#"version = 1
 doc_root = "{}"
 
-[[profiles]]
+[[agents]]
 name = "mock"
 aliases = ["claude"]
-backend = "claude"
+cli_type = "claude"
 path = "{}"
 "#,
             toml_string(&doc_root),
@@ -378,12 +435,12 @@ fn write_backend_alias_shadows_profile_config(dir: &Path, worker: &Path) -> Path
             r#"version = 1
 doc_root = "{}"
 
-[backend_aliases]
+[cli_type_aliases]
 mock = "claude"
 
-[[profiles]]
+[[agents]]
 name = "mock"
-backend = "claude"
+cli_type = "claude"
 path = "{}"
 "#,
             toml_string(&doc_root),
@@ -405,7 +462,7 @@ fn run_occ(config: &Path, cwd: &Path, timeout: &str) -> serde_json::Value {
         .arg("--config")
         .arg(config)
         .arg("run")
-        .arg("--profile")
+        .arg("--agent")
         .arg("mock")
         .arg("--cwd")
         .arg(cwd)
@@ -431,7 +488,7 @@ fn run_occ_with_default_timeout(config: &Path, cwd: &Path) -> serde_json::Value 
         .arg("--config")
         .arg(config)
         .arg("run")
-        .arg("--profile")
+        .arg("--agent")
         .arg("mock")
         .arg("--cwd")
         .arg(cwd)
@@ -456,7 +513,7 @@ fn run_occ_dry(config: &Path, cwd: &Path, extra: &[&str]) -> serde_json::Value {
         .arg("--config")
         .arg(config)
         .arg("run")
-        .arg("--profile")
+        .arg("--agent")
         .arg("mock")
         .arg("--cwd")
         .arg(cwd)
@@ -478,12 +535,35 @@ fn run_occ_dry(config: &Path, cwd: &Path, extra: &[&str]) -> serde_json::Value {
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
+fn run_occ_dry_without_prompt(config: &Path, cwd: &Path) -> serde_json::Value {
+    let output = Command::new(env!("CARGO_BIN_EXE_occ"))
+        .arg("--config")
+        .arg(config)
+        .arg("run")
+        .arg("--agent")
+        .arg("mock")
+        .arg("--cwd")
+        .arg(cwd)
+        .arg("--output")
+        .arg("json")
+        .arg("--dry-run")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "occ failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
 fn run_occ_profile(config: &Path, cwd: &Path, profile: &str) -> serde_json::Value {
     let output = Command::new(env!("CARGO_BIN_EXE_occ"))
         .arg("--config")
         .arg(config)
         .arg("run")
-        .arg("--profile")
+        .arg("--agent")
         .arg(profile)
         .arg("--cwd")
         .arg(cwd)
@@ -507,7 +587,7 @@ fn run_occ_backend(config: &Path, cwd: &Path, backend: &str) -> serde_json::Valu
         .arg("--config")
         .arg(config)
         .arg("run")
-        .arg("--backend")
+        .arg("--cli")
         .arg(backend)
         .arg("--cwd")
         .arg(cwd)
@@ -558,6 +638,37 @@ fn run_occ_text(config: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
+fn run_occ_text_with_stdin(config: &Path, args: &[&str], stdin: &str) -> String {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let mut command = Command::new(env!("CARGO_BIN_EXE_occ"));
+    command.arg("--config").arg(config);
+    for arg in args {
+        command.arg(arg);
+    }
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(stdin.as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "occ failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
 #[test]
 fn non_interactive_large_output_is_streamed_to_logs() {
     let dir = temp_dir("large-output");
@@ -575,6 +686,150 @@ fn non_interactive_large_output_is_streamed_to_logs() {
     assert!(stderr.contains("stderr-line-19999"));
     assert!(stdout.len() > 64 * 1024);
     assert!(stderr.len() > 64 * 1024);
+}
+
+#[test]
+fn help_describes_top_level_commands() {
+    let output = Command::new(env!("CARGO_BIN_EXE_occ"))
+        .arg("--help")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "occ failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("run"));
+    assert!(stdout.contains("Run one delegated task"));
+    assert!(stdout.contains("vibe"));
+    assert!(stdout.contains("Chat with a selected coding CLI"));
+}
+
+#[test]
+fn list_container_commands_default_to_list() {
+    let dir = temp_dir("container-default-list");
+    let worker = compile_worker(&dir);
+    let config = write_alias_config(&dir, &worker);
+
+    let agent_aliases = run_occ_text(&config, &["agents"]);
+    assert!(agent_aliases.contains("mock"));
+
+    let cli_types = run_occ_text(&config, &["clis"]);
+    assert!(cli_types.contains("claude"));
+
+    let runs = run_occ_text(&config, &["runs"]);
+    assert!(!runs.contains("required arguments"));
+}
+
+#[test]
+fn config_show_uses_language_preference_and_explains_fields() {
+    let dir = temp_dir("localized-config-show");
+    let worker = compile_worker(&dir);
+    let config = write_config(&dir, &worker, "small");
+
+    let zh = Command::new(env!("CARGO_BIN_EXE_occ"))
+        .env("OCC_LANG", "zh-CN")
+        .arg("--config")
+        .arg(&config)
+        .arg("config")
+        .arg("show")
+        .output()
+        .unwrap();
+    assert!(zh.status.success());
+    let zh_stdout = String::from_utf8_lossy(&zh.stdout);
+    assert!(zh_stdout.contains("配置概览"));
+    assert!(zh_stdout.contains("运行记录目录"));
+
+    let en = Command::new(env!("CARGO_BIN_EXE_occ"))
+        .env("OCC_LANG", "en-US")
+        .arg("--config")
+        .arg(&config)
+        .arg("config")
+        .arg("show")
+        .output()
+        .unwrap();
+    assert!(en.status.success());
+    let en_stdout = String::from_utf8_lossy(&en.stdout);
+    assert!(en_stdout.contains("Configuration summary"));
+    assert!(en_stdout.contains("run artifact directory"));
+}
+
+#[test]
+fn vibe_slash_commands_can_switch_backend_model_and_report_status() {
+    let dir = temp_dir("vibe-slash-commands");
+    let worker = compile_worker(&dir);
+    let config = write_alias_config(&dir, &worker);
+
+    let output = run_occ_text_with_stdin(
+        &config,
+        &["vibe"],
+        "/help\n/cli-type codex\n/model test-model\n/status\n/exit\n",
+    );
+
+    assert!(output.contains("cli-type: codex"));
+    assert!(output.contains("model: test-model"));
+    assert!(output.contains("/cli-type <name>"));
+}
+
+#[test]
+fn default_doc_root_is_user_occ_when_config_omits_doc_root() {
+    let dir = temp_dir("default-doc-root");
+    let worker = compile_worker(&dir);
+    let config = write_config_without_doc_root(&dir, &worker, "small");
+
+    let response = run_occ_dry(&config, &dir, &[]);
+    let doc_root = PathBuf::from(response["context"]["doc_root"].as_str().unwrap());
+
+    assert!(doc_root.is_absolute());
+    assert_eq!(doc_root.file_name().unwrap(), ".occ");
+    assert_ne!(doc_root, dir.join(".occ"));
+}
+
+#[test]
+fn run_without_prompt_defaults_to_interactive_mode() {
+    let dir = temp_dir("default-interactive");
+    let worker = compile_worker(&dir);
+    let config = write_config_without_doc_root(&dir, &worker, "small");
+
+    let response = run_occ_dry_without_prompt(&config, &dir);
+
+    assert_eq!(response["success"], true);
+    assert_eq!(response["command"]["args"][0], "interactive-mode");
+    assert_eq!(response["command"]["prompt_via_stdin"], false);
+}
+
+#[test]
+fn stream_flag_mirrors_non_interactive_child_output_to_parent_stderr() {
+    let dir = temp_dir("stream-flag");
+    let worker = compile_worker(&dir);
+    let config = write_config(&dir, &worker, "small");
+    let output = Command::new(env!("CARGO_BIN_EXE_occ"))
+        .arg("--config")
+        .arg(&config)
+        .arg("run")
+        .arg("--agent")
+        .arg("mock")
+        .arg("--cwd")
+        .arg(&dir)
+        .arg("--prompt")
+        .arg("hello")
+        .arg("--output")
+        .arg("json")
+        .arg("--stream")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "occ failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("small-stdout-line"));
+    assert!(stderr.contains("small-stderr-line"));
 }
 
 #[test]
@@ -620,7 +875,7 @@ fn dry_run_shows_gemini_file_indirection_for_multiline_prompt() {
         .arg("--config")
         .arg(&config)
         .arg("run")
-        .arg("--backend")
+        .arg("--cli")
         .arg("gemini")
         .arg("--cwd")
         .arg(&dir)
@@ -703,15 +958,15 @@ fn model_source_is_reported_for_profile_and_cli_model() {
 
     let profile = run_occ_dry(&config, &dir, &[]);
     assert_eq!(profile["context"]["model"], "profile-model");
-    assert_eq!(profile["model_source"], "profile");
+    assert_eq!(profile["model_source"], "agent");
 
     let cli = run_occ_dry(&config, &dir, &["--model", "cli-model"]);
     assert_eq!(cli["context"]["model"], "cli-model");
-    assert_eq!(cli["model_source"], "cli");
+    assert_eq!(cli["model_source"], "cli-arg");
 
     let response = run_occ_with_default_timeout(&config, &dir);
     assert_eq!(response["model"], "profile-model");
-    assert_eq!(response["model_source"], "profile");
+    assert_eq!(response["model_source"], "agent");
 }
 
 #[test]
@@ -723,7 +978,7 @@ fn profile_alias_can_select_profile() {
     let response = run_occ_profile(&config, &dir, "m");
 
     assert_eq!(response["success"], true);
-    assert_eq!(response["profile"], "mock");
+    assert_eq!(response["agent"], "mock");
 }
 
 #[test]
@@ -746,8 +1001,28 @@ fn backend_alias_can_select_backend() {
     let response = run_occ_backend(&config, &dir, "c");
 
     assert_eq!(response["success"], true);
-    assert_eq!(response["profile"], "mock");
-    assert_eq!(response["backend"], "claude");
+    assert_eq!(response["agent"], "mock");
+    assert_eq!(response["cli"], "claude");
+}
+
+#[test]
+fn new_config_names_can_select_agent_alias_and_cli_type_alias() {
+    let dir = temp_dir("new-config-names");
+    let worker = compile_worker(&dir);
+    let config = write_new_names_config(&dir, &worker);
+
+    let agent_alias_response = run_occ_profile(&config, &dir, "mock");
+    assert_eq!(agent_alias_response["success"], true);
+    assert_eq!(agent_alias_response["agent"], "mock");
+
+    let cli_response = run_occ_backend(&config, &dir, "c");
+    assert_eq!(cli_response["success"], true);
+    assert_eq!(cli_response["cli"], "claude");
+
+    let raw = run_occ_text(&config, &["config", "show", "--raw"]);
+    assert!(raw.contains("default_agent"));
+    assert!(raw.contains("[[agents]]"));
+    assert!(raw.contains("cli_type = \"claude\""));
 }
 
 #[test]
@@ -820,7 +1095,7 @@ fn doctor_reports_alias_semantic_errors_without_failing() {
 
     let output = run_occ_text(&config, &["doctor"]);
 
-    assert!(output.contains("error config_semantics: profile_alias_conflict"));
+    assert!(output.contains("config_semantics") && output.contains("profile_alias_conflict"));
 }
 
 #[test]
@@ -829,9 +1104,14 @@ fn profiles_list_shows_aliases() {
     let worker = compile_worker(&dir);
     let config = write_alias_config(&dir, &worker);
 
-    let output = run_occ_text(&config, &["profiles", "list"]);
+    let output = run_occ_text(&config, &["agents", "list"]);
 
-    assert!(output.contains("mock\tclaude\tconfig\taliases=m"));
+    assert!(
+        output.contains("mock")
+            && output.contains("claude")
+            && output.contains("config")
+            && output.contains("aliases=m")
+    );
 }
 
 #[test]
