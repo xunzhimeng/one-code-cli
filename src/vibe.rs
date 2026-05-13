@@ -544,7 +544,7 @@ fn handle_command(message: &str, state: &mut VibeState) -> OccResult<bool> {
                 println!(
                     "  {} {}",
                     "model:".dimmed(),
-                    i18n::t("vibe.backend_cleared").dimmed()
+                    "(cleared)".dimmed()
                 );
             }
             Ok(true)
