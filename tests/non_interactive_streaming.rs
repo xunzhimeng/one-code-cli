@@ -765,12 +765,12 @@ fn vibe_slash_commands_can_switch_backend_model_and_report_status() {
     let output = run_occ_text_with_stdin(
         &config,
         &["vibe"],
-        "/help\n/cli-type codex\n/model test-model\n/status\n/exit\n",
+        "/help\n/cli codex\n/model test-model\n/status\n/exit\n",
     );
 
-    assert!(output.contains("cli-type: codex"));
+    assert!(output.contains("cli: codex"));
     assert!(output.contains("model: test-model"));
-    assert!(output.contains("/cli-type <name>"));
+    assert!(output.contains("/cli <name>"));
 }
 
 #[test]

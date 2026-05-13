@@ -627,7 +627,7 @@ fn send_message(
     };
 
     state.session_id = Some(execution.body.session_id.clone());
-    let assistant_message = child_message(&execution.stdout, &execution.stderr);
+    let assistant_message = child_message(&execution);
     render_assistant_message(&execution, &assistant_message);
     state.transcript.push(VibeMessage {
         role: "user",
@@ -670,15 +670,25 @@ fn build_prompt(args: &VibeArgs, state: &VibeState, user_message: &str) -> Strin
     prompt
 }
 
-fn child_message(stdout: &str, stderr: &str) -> String {
-    let stdout = stdout.trim_end();
-    let stderr = stderr.trim_end();
-    if !stdout.trim().is_empty() && !stderr.trim().is_empty() {
-        format!("{}\n\n[stderr]\n{}", stdout, stderr)
-    } else if !stdout.trim().is_empty() {
+fn child_message(execution: &runner::RunExecution) -> String {
+    let stdout = execution.stdout.trim_end();
+    let stderr = execution.stderr.trim_end();
+    if !stdout.trim().is_empty() {
         stdout.to_string()
+    } else if !execution.body.success && !stderr.trim().is_empty() {
+        format!("[stderr]\n{}", stderr)
     } else if !stderr.trim().is_empty() {
-        stderr.trim_end().to_string()
+        execution
+            .body
+            .result_path
+            .parent()
+            .map(|run_dir| {
+                format!(
+                    "No stdout. Stderr was captured in `{}`.",
+                    output::display_path(&run_dir.join("stderr.log"))
+                )
+            })
+            .unwrap_or_else(|| "No stdout. Stderr was captured in run artifacts.".to_string())
     } else {
         "No output.".to_string()
     }
