@@ -1,5 +1,6 @@
 mod backend;
 mod cli;
+mod cli_defaults;
 mod commands;
 mod config;
 mod config_ui;
@@ -71,6 +72,11 @@ fn dispatch(cli: Cli) -> OccResult<()> {
             Some(ConfigCommand::Ui { output }) => {
                 commands::config_ui(cli.config.as_ref(), output, true)
             }
+            Some(ConfigCommand::Html {
+                save_to,
+                port,
+                no_open,
+            }) => commands::config_html(cli.config.as_ref(), save_to, port, !no_open),
             Some(ConfigCommand::ExportHtml {
                 output,
                 target,

@@ -392,7 +392,7 @@ pub fn write_sample_config(path: &Path, force: bool) -> OccResult<()> {
     })
 }
 
-fn migrate_legacy_config_toml(text: &str) -> String {
+pub fn migrate_legacy_config_toml(text: &str) -> String {
     let Ok(mut value) = text.parse::<toml::Value>() else {
         return text.to_string();
     };
@@ -517,8 +517,8 @@ fn default_doc_root() -> OccResult<PathBuf> {
         })
 }
 
-pub fn editable_config_toml(config: &EffectiveConfig) -> OccResult<String> {
-    let file = ConfigFile {
+pub fn editable_config_file(config: &EffectiveConfig) -> ConfigFile {
+    ConfigFile {
         version: Some(config.version),
         default_profile: config.default_profile.clone(),
         doc_root: Some(config.doc_root.clone()),
@@ -527,7 +527,11 @@ pub fn editable_config_toml(config: &EffectiveConfig) -> OccResult<String> {
         backend_defaults: config.backend_defaults.clone(),
         backend_aliases: config.backend_aliases.clone(),
         profiles: config.profiles.clone(),
-    };
+    }
+}
+
+pub fn editable_config_toml(config: &EffectiveConfig) -> OccResult<String> {
+    let file = editable_config_file(config);
     toml::to_string_pretty(&file).map_err(|error| {
         OccError::new(
             "serialization_failed",

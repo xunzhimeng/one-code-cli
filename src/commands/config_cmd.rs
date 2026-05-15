@@ -234,6 +234,31 @@ pub fn config_ui(
     Ok(())
 }
 
+pub fn config_html(
+    config_arg: Option<&PathBuf>,
+    save_to: Option<PathBuf>,
+    port: Option<u16>,
+    open_browser: bool,
+) -> OccResult<()> {
+    let cwd = current_cwd()?;
+    let config = config::load(config_arg, &cwd)?;
+    let save_path = save_to
+        .or_else(|| config.loaded_paths.last().cloned())
+        .unwrap_or_else(|| config::default_project_config_path(&cwd));
+    let metadata = config_ui::ConfigHtmlMetadata {
+        cwd: cwd.clone(),
+        target: "loaded".to_string(),
+        recommended_path: save_path.clone(),
+        loaded_paths: config.loaded_paths.clone(),
+        search_paths: config.search_paths.clone(),
+        doc_root: config.resolved_doc_root(&cwd, None),
+        default_profile: config.default_profile.clone(),
+        init_command: "occ config init --user".to_string(),
+    };
+    config_ui::serve_form(&config, &save_path, port, open_browser, metadata)?;
+    Ok(())
+}
+
 pub fn config_export_html(
     config_arg: Option<&PathBuf>,
     output: Option<PathBuf>,

@@ -245,6 +245,26 @@ pub enum ConfigCommand {
         #[arg(long, help = "Output path for the generated HTML file")]
         output: Option<PathBuf>,
     },
+    #[command(
+        about = "Open form-based config UI in browser / 在浏览器中打开表单式配置 UI"
+    )]
+    Html {
+        #[arg(
+            long,
+            help = "Persist saves to this file (defaults to last loaded config or project config path)"
+        )]
+        save_to: Option<PathBuf>,
+
+        #[arg(
+            long,
+            help = "Bind port (defaults to a random localhost port)",
+            value_name = "PORT"
+        )]
+        port: Option<u16>,
+
+        #[arg(long, help = "Do not open the default browser automatically")]
+        no_open: bool,
+    },
     #[command(about = "Export standalone config HTML / 导出静态配置 HTML")]
     ExportHtml {
         #[arg(long, help = "Output path for the generated HTML file")]
