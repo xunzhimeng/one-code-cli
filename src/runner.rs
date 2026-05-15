@@ -429,14 +429,14 @@ fn read_prompt(
                 "invalid_prompt_source",
                 format!(
                     "Failed to read prompt file '{}'",
-                    output::display_path(&path)
+                    output::display_path(path)
                 ),
                 error,
             )
         })?;
         return Ok(PromptData {
             text: Some(text),
-            source: format!("prompt-file:{}", output::display_path(&path)),
+            source: format!("prompt-file:{}", output::display_path(path)),
             file: Some(path.clone()),
         });
     }
@@ -689,9 +689,7 @@ where
                 file.write_all(&chunk[..count])?;
                 file.flush()?;
                 if stream {
-                    let mut stderr = io::stderr().lock();
-                    stderr.write_all(&chunk[..count])?;
-                    stderr.flush()?;
+                    mirror_stream_chunk(&chunk[..count]);
                 }
             }
             Ok(bytes)
@@ -739,6 +737,22 @@ fn terminate_child_tree(child: &mut Child) {
 
 fn decode_child_output(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
+}
+
+fn mirror_stream_chunk(chunk: &[u8]) {
+    let mut stderr = io::stderr().lock();
+    let _ = write_stream_chunk(&mut stderr, chunk);
+    let _ = stderr.flush();
+}
+
+#[cfg(windows)]
+fn write_stream_chunk<W: Write>(writer: &mut W, chunk: &[u8]) -> io::Result<()> {
+    writer.write_all(String::from_utf8_lossy(chunk).as_bytes())
+}
+
+#[cfg(not(windows))]
+fn write_stream_chunk<W: Write>(writer: &mut W, chunk: &[u8]) -> io::Result<()> {
+    writer.write_all(chunk)
 }
 
 fn write_prompt_error(path: &Path, error: std::io::Error) -> OccError {

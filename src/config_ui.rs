@@ -472,7 +472,7 @@ fn write_response(
         "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
         status,
         content_type,
-        body.as_bytes().len(),
+        body.len(),
         body
     );
     stream
@@ -599,8 +599,6 @@ pub fn serve_form(
         let detected_json = Arc::clone(&detected_json);
         let save_path = Arc::clone(&save_path);
         let shutdown = Arc::clone(&shutdown);
-        let address = address;
-
         std::thread::spawn(move || {
             match handle_form_connection(
                 stream,
@@ -664,9 +662,10 @@ fn handle_form_connection(
         let fresh_json = match fs::read_to_string(save_path) {
             Ok(toml_text) => {
                 let text = config::migrate_legacy_config_toml(&toml_text);
-                match toml::from_str::<ConfigFile>(&text).ok().and_then(|cf| {
-                    serde_json::to_string(&cf).ok()
-                }) {
+                match toml::from_str::<ConfigFile>(&text)
+                    .ok()
+                    .and_then(|cf| serde_json::to_string(&cf).ok())
+                {
                     Some(json) => json,
                     None => initial_json.to_string(),
                 }
@@ -733,12 +732,7 @@ fn handle_form_connection(
             )
         })?;
         let body = format!("Saved to {}", output::display_path(save_path));
-        write_response(
-            &mut stream,
-            "200 OK",
-            "text/plain; charset=utf-8",
-            &body,
-        )?;
+        write_response(&mut stream, "200 OK", "text/plain; charset=utf-8", &body)?;
         return Ok(false);
     }
     if first_line.starts_with("POST /api/shutdown ") {
@@ -776,8 +770,8 @@ fn form_html(
 ) -> String {
     let save_path_display = output::display_path(save_path);
     let save_path_text = escape_html(&save_path_display);
-    let save_path_json = serde_json::to_string(&save_path_display)
-        .unwrap_or_else(|_| "\"\"".to_string());
+    let save_path_json =
+        serde_json::to_string(&save_path_display).unwrap_or_else(|_| "\"\"".to_string());
     format!(
         r#"<!doctype html>
 <html lang="zh-CN" data-theme="light">

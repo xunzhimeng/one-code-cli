@@ -29,7 +29,7 @@ Use this skill when an agent delegates a coding task to another coding-agent CLI
 
 Use this when `occ` is already known to work and the user or project specifies the target/CLI.
 
-1. State the intended `cwd`, agent/CLI, mode, timeout, and whether files may be modified.
+1. State the intended `cwd`, agent/CLI, mode, prompt source, `doc_root`, and whether files may be modified.
 2. For non-interactive work, run `occ run ... --dry-run --output json` first when command shape, permissions, or prompt routing need confirmation.
 3. Run the task only after the parameters are clear.
 4. Parse JSON output, then read `result_path` first.
@@ -49,10 +49,10 @@ Use this when agent/CLI selection is unclear, `occ` failed, config may be stale,
 ## Foreground and background policy
 
 - If the user wants supervision, default to foreground interactive mode. `occ run` without `--prompt`, `--prompt-file`, or `--stdin` enters interactive mode; `--interactive` can be used explicitly.
-- Do not launch long non-interactive runs silently. First show or dry-run the command parameters: `cwd`, agent/CLI, prompt source, `doc_root`, timeout, and permission posture.
+- Do not launch long non-interactive runs silently. First show or dry-run the command parameters: `cwd`, agent/CLI, prompt source, `doc_root`, and permission posture.
 - Use non-interactive background-style execution only after parameters are set, the task needs automation, or the user accepts that the child CLI TUI will not be visible.
 - For supervised non-interactive runs, pass `--stream` so child stdout/stderr is mirrored to parent stderr while JSON remains on stdout.
-- For long non-interactive runs, set a timeout, for example `--timeout 10m`, unless the user explicitly wants no timeout.
+- By default, do not add `--timeout`; add it only when the user or project requires a hard limit.
 - Do not terminate a child process only because stdout is quiet. Some CLIs buffer output until completion.
 
 ## Commands
@@ -66,13 +66,13 @@ occ run --cli claude --cwd <cwd> --interactive
 Non-interactive with a short prompt:
 
 ```bash
-occ run --agent <agent> --cwd <cwd> --prompt "<task prompt>" --non-interactive --stream --output json --timeout 10m
+occ run --agent <agent> --cwd <cwd> --prompt "<task prompt>" --non-interactive --stream --output json
 ```
 
 Non-interactive with a longer inline prompt:
 
 ```bash
-printf '%s\n' "<task prompt>" | occ run --agent <agent> --cwd <cwd> --stdin --non-interactive --stream --output json --timeout 10m
+printf '%s\n' "<task prompt>" | occ run --agent <agent> --cwd <cwd> --stdin --non-interactive --stream --output json
 ```
 
 Use `--prompt-file` only when the prompt already exists as a file or the worker must reference that exact file.
@@ -80,8 +80,10 @@ Use `--prompt-file` only when the prompt already exists as a file or the worker 
 If the agent is unknown but CLI is known:
 
 ```bash
-occ run --cli claude --cwd <cwd> --prompt "<task prompt>" --non-interactive --stream --output json --timeout 10m
+occ run --cli claude --cwd <cwd> --prompt "<task prompt>" --non-interactive --stream --output json
 ```
+
+Add `--timeout <duration>` only when a hard execution cap is needed.
 
 Dry-run before real execution when parameters need inspection:
 
@@ -115,7 +117,7 @@ Read order after completion:
 4. `stderr.log`
 5. `events.jsonl`
 
-If the parent agent cannot stream the child process output, treat silence as normal until timeout or exit. Give the user the run directory and current wait policy instead of repeatedly killing or restarting the process.
+If the parent agent cannot stream the child process output, treat silence as normal until completion, a configured timeout, or user interruption. Give the user the run directory and current wait policy instead of repeatedly killing or restarting the process.
 
 ## Resume
 

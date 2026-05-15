@@ -12,4 +12,4 @@ For longer inline prompts:
 printf '%s\n' "<task prompt>" | occ run --agent <agent> --cwd <cwd> --stdin --non-interactive --stream --output json
 ```
 
-After the command finishes, parse JSON and read `result_path`.
+After the command finishes, parse JSON and read `result_path` first.

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use directories::BaseDirs;
 use serde::Serialize;
@@ -23,14 +23,14 @@ pub struct DetectedDefaults {
 pub fn detect() -> DetectedDefaults {
     let home = BaseDirs::new().map(|b| b.home_dir().to_path_buf());
     DetectedDefaults {
-        claude: home.as_ref().map(detect_claude).unwrap_or_default(),
-        codex: home.as_ref().map(detect_codex).unwrap_or_default(),
-        opencode: home.as_ref().map(detect_opencode).unwrap_or_default(),
-        gemini: home.as_ref().map(detect_gemini).unwrap_or_default(),
+        claude: home.as_deref().map(detect_claude).unwrap_or_default(),
+        codex: home.as_deref().map(detect_codex).unwrap_or_default(),
+        opencode: home.as_deref().map(detect_opencode).unwrap_or_default(),
+        gemini: home.as_deref().map(detect_gemini).unwrap_or_default(),
     }
 }
 
-fn detect_claude(home: &PathBuf) -> DetectedCli {
+fn detect_claude(home: &Path) -> DetectedCli {
     let path = home.join(".claude").join("settings.json");
     let mut out = DetectedCli::default();
     let Ok(text) = fs::read_to_string(&path) else {
@@ -58,7 +58,7 @@ fn detect_claude(home: &PathBuf) -> DetectedCli {
     out
 }
 
-fn detect_codex(home: &PathBuf) -> DetectedCli {
+fn detect_codex(home: &Path) -> DetectedCli {
     let mut out = DetectedCli::default();
     let path = home.join(".codex").join("config.toml");
     if let Ok(text) = fs::read_to_string(&path) {
@@ -100,7 +100,7 @@ fn detect_codex(home: &PathBuf) -> DetectedCli {
     out
 }
 
-fn detect_opencode(home: &PathBuf) -> DetectedCli {
+fn detect_opencode(home: &Path) -> DetectedCli {
     let mut out = DetectedCli::default();
     for candidate in [
         home.join(".opencode").join("config.json"),
@@ -131,7 +131,7 @@ fn detect_opencode(home: &PathBuf) -> DetectedCli {
     out
 }
 
-fn detect_gemini(home: &PathBuf) -> DetectedCli {
+fn detect_gemini(home: &Path) -> DetectedCli {
     let mut out = DetectedCli::default();
     for candidate in [
         home.join(".gemini").join("settings.json"),

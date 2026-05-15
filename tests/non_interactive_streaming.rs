@@ -46,6 +46,10 @@ fn main() {
             println!("small-stdout-line");
             eprintln!("small-stderr-line");
         }
+        Some("invalid-stderr") => {
+            println!("invalid-stdout-line");
+            io::stderr().write_all(&[0xff, b'\n']).unwrap();
+        }
         Some("timeout") => {
             println!("partial-stdout-before-timeout");
             eprintln!("partial-stderr-before-timeout");
@@ -403,6 +407,26 @@ claude = "codex"
     config
 }
 
+fn write_identity_backend_alias_config(dir: &Path) -> PathBuf {
+    let config = dir.join("config-backend-alias-identity.toml");
+    let doc_root = dir.join("docs-backend-alias-identity");
+    fs::write(
+        &config,
+        format!(
+            r#"version = 1
+doc_root = "{}"
+
+[cli_type_aliases]
+codex = "codex"
+gemini = "gemini"
+"#,
+            toml_string(&doc_root),
+        ),
+    )
+    .unwrap();
+    config
+}
+
 fn write_profile_alias_shadows_backend_config(dir: &Path, worker: &Path) -> PathBuf {
     let config = dir.join("config-profile-alias-shadows-backend.toml");
     let doc_root = dir.join("docs-profile-alias-shadows-backend");
@@ -724,6 +748,83 @@ fn list_container_commands_default_to_list() {
 }
 
 #[test]
+fn list_table_output_does_not_style_headers() {
+    let dir = temp_dir("list-table-plain-header");
+    let worker = compile_worker(&dir);
+    let config = write_alias_config(&dir, &worker);
+    let output = Command::new(env!("CARGO_BIN_EXE_occ"))
+        .env("CLICOLOR_FORCE", "1")
+        .arg("--config")
+        .arg(&config)
+        .arg("clis")
+        .arg("list")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "occ failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("CLI"));
+    assert!(stdout.contains("claude"));
+    assert!(!stdout.contains('\u{1b}'));
+}
+
+#[test]
+fn skills_list_table_fits_default_terminal_width() {
+    let output = Command::new(env!("CARGO_BIN_EXE_occ"))
+        .env("COLUMNS", "80")
+        .arg("skills")
+        .arg("list")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "occ failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("using-one-code-cli"));
+    assert!(stdout.lines().all(|line| line.chars().count() <= 80));
+}
+
+#[test]
+fn skills_install_removes_obsolete_bundled_files() {
+    let dir = temp_dir("skills-install-obsolete");
+    let target = dir.join("skills");
+    let examples = target.join("using-one-code-cli").join("examples");
+    fs::create_dir_all(&examples).unwrap();
+    fs::write(examples.join("run-with-profile.md"), "old profile").unwrap();
+    fs::write(examples.join("run-with-backend.md"), "old backend").unwrap();
+    fs::write(examples.join("custom-note.md"), "keep").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_occ"))
+        .arg("skills")
+        .arg("install")
+        .arg("--target")
+        .arg(&target)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "occ failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(examples.join("run-with-agent.md").exists());
+    assert!(examples.join("run-with-cli.md").exists());
+    assert!(!examples.join("run-with-profile.md").exists());
+    assert!(!examples.join("run-with-backend.md").exists());
+    assert!(examples.join("custom-note.md").exists());
+}
+
+#[test]
 fn config_show_uses_language_preference_and_explains_fields() {
     let dir = temp_dir("localized-config-show");
     let worker = compile_worker(&dir);
@@ -830,6 +931,43 @@ fn stream_flag_mirrors_non_interactive_child_output_to_parent_stderr() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("small-stdout-line"));
     assert!(stderr.contains("small-stderr-line"));
+}
+
+#[test]
+fn stream_flag_survives_non_utf8_child_stderr() {
+    let dir = temp_dir("stream-non-utf8");
+    let worker = compile_worker(&dir);
+    let config = write_config(&dir, &worker, "invalid-stderr");
+    let output = Command::new(env!("CARGO_BIN_EXE_occ"))
+        .arg("--config")
+        .arg(&config)
+        .arg("run")
+        .arg("--agent")
+        .arg("mock")
+        .arg("--cwd")
+        .arg(&dir)
+        .arg("--prompt")
+        .arg("hello")
+        .arg("--output")
+        .arg("json")
+        .arg("--stream")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "occ failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["success"], true);
+    let stderr_log = response["metadata_path"]
+        .as_str()
+        .map(Path::new)
+        .unwrap()
+        .with_file_name("stderr.log");
+    assert!(fs::read(stderr_log).unwrap().contains(&0xff));
 }
 
 #[test]
@@ -1063,6 +1201,16 @@ fn config_validate_rejects_backend_alias_shadowing_backend_name() {
     let error = run_occ_expect_failure(&config, &["config", "validate"]);
 
     assert!(error.contains("backend_alias_conflict"));
+}
+
+#[test]
+fn config_validate_allows_identity_backend_aliases() {
+    let dir = temp_dir("backend-alias-identity");
+    let config = write_identity_backend_alias_config(&dir);
+
+    let output = run_occ_text(&config, &["config", "validate"]);
+
+    assert!(output.contains("ok"));
 }
 
 #[test]

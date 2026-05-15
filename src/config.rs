@@ -8,18 +8,13 @@ use serde::{Deserialize, Serialize};
 use crate::error::{OccError, OccResult};
 use crate::output;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ArgsStrategy {
+    #[default]
     Builtin,
     Append,
     Override,
-}
-
-impl Default for ArgsStrategy {
-    fn default() -> Self {
-        Self::Builtin
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -411,10 +406,7 @@ pub fn migrate_legacy_config_toml(text: &str) -> String {
     migrate_table_key(table, "profiles", "agents");
     migrate_table_key(table, "agent_aliases", "agents");
 
-    if let Some(agents) = table
-        .get_mut("agents")
-        .and_then(toml::Value::as_array_mut)
-    {
+    if let Some(agents) = table.get_mut("agents").and_then(toml::Value::as_array_mut) {
         for entry in agents {
             if let Some(entry_table) = entry.as_table_mut() {
                 migrate_table_key(entry_table, "cli", "cli_type");

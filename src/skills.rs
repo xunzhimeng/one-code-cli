@@ -83,12 +83,39 @@ pub fn doctor(target: &Path) -> OccResult<Vec<String>> {
 
 fn export_skill(skill: &SkillTemplate, target: &Path) -> OccResult<PathBuf> {
     let dir = target.join(skill.name);
+    remove_obsolete_files(skill, &dir)?;
     write_file(&dir.join("SKILL.md"), skill.skill_md)?;
     write_file(&dir.join("skill.toml"), skill.skill_toml)?;
     for file in skill.files {
         write_file(&dir.join(file.path), file.body)?;
     }
     Ok(dir)
+}
+
+fn remove_obsolete_files(skill: &SkillTemplate, dir: &Path) -> OccResult<()> {
+    for file in obsolete_files(skill.name) {
+        let path = dir.join(file);
+        if path.exists() {
+            fs::remove_file(&path).map_err(|error| {
+                OccError::io(
+                    "doc_root_not_writable",
+                    format!("Failed to remove '{}'", output::display_path(&path)),
+                    error,
+                )
+            })?;
+        }
+    }
+    Ok(())
+}
+
+fn obsolete_files(skill_name: &str) -> &'static [&'static str] {
+    match skill_name {
+        "using-one-code-cli" => &[
+            "examples/run-with-profile.md",
+            "examples/run-with-backend.md",
+        ],
+        _ => &[],
+    }
 }
 
 fn write_file(path: &Path, body: &str) -> OccResult<()> {
@@ -112,12 +139,12 @@ fn write_file(path: &Path, body: &str) -> OccResult<()> {
 
 static USING_ONE_CODE_CLI_FILES: &[SkillFile] = &[
     SkillFile {
-        path: "examples/run-with-profile.md",
-        body: include_str!("../assets/skills/using-one-code-cli/examples/run-with-profile.md"),
+        path: "examples/run-with-agent.md",
+        body: include_str!("../assets/skills/using-one-code-cli/examples/run-with-agent.md"),
     },
     SkillFile {
-        path: "examples/run-with-backend.md",
-        body: include_str!("../assets/skills/using-one-code-cli/examples/run-with-backend.md"),
+        path: "examples/run-with-cli.md",
+        body: include_str!("../assets/skills/using-one-code-cli/examples/run-with-cli.md"),
     },
     SkillFile {
         path: "examples/resume-session.md",

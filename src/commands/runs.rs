@@ -9,7 +9,13 @@ use super::current_doc_root;
 
 pub fn runs_list(config_arg: Option<&PathBuf>, limit: usize) -> OccResult<()> {
     let doc_root = current_doc_root(config_arg)?;
-    let mut table = Table::new(&["RUN_ID", "SESSION_ID", "AGENT_ALIAS", "SUCCESS", "CREATED_AT"]);
+    let mut table = Table::new(&[
+        "RUN_ID",
+        "SESSION_ID",
+        "AGENT_ALIAS",
+        "SUCCESS",
+        "CREATED_AT",
+    ]);
     for entry in run_record::list(&doc_root, limit)? {
         table.add_row(vec![
             entry.run_id,

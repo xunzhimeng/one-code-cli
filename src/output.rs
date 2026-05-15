@@ -1,3 +1,4 @@
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use colored::Colorize;
@@ -46,7 +47,7 @@ pub fn display_path(path: &Path) -> String {
     display_text(&path.display().to_string())
 }
 
-fn serialize_display_path<S>(path: &PathBuf, serializer: S) -> Result<S::Ok, S::Error>
+fn serialize_display_path<S>(path: &Path, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
@@ -168,7 +169,9 @@ impl Table {
             })
             .collect::<Vec<_>>()
             .join("");
-        println!("{}", header_line.bold());
+        let mut output = String::new();
+        output.push_str(&header_line);
+        output.push('\n');
 
         for row in &self.rows {
             let line: String = row
@@ -187,7 +190,12 @@ impl Table {
                 })
                 .collect::<Vec<_>>()
                 .join("");
-            println!("{}", line);
+            output.push_str(&line);
+            output.push('\n');
         }
+        output.push('\n');
+        let mut stdout = io::stdout().lock();
+        let _ = stdout.write_all(output.as_bytes());
+        let _ = stdout.flush();
     }
 }

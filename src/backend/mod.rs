@@ -207,10 +207,7 @@ fn builtin_args(
     if interactive && !backend.supports_interactive {
         return Err(OccError::new(
             "child_process_failed",
-            format!(
-                "CLI '{}' does not support interactive mode.",
-                backend.name
-            ),
+            format!("CLI '{}' does not support interactive mode.", backend.name),
         ));
     }
     if !interactive && !backend.supports_non_interactive {

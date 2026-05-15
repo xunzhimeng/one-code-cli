@@ -60,7 +60,7 @@ pub fn start(config_arg: Option<&PathBuf>, args: VibeArgs) -> OccResult<()> {
 type VibeEditor = Editor<VibeLineHelper, rustyline::history::DefaultHistory>;
 
 enum VibeInput {
-    Editor(VibeEditor),
+    Editor(Box<VibeEditor>),
     Plain(String),
 }
 
@@ -74,7 +74,7 @@ impl VibeInput {
                 )
             })?;
             editor.set_helper(Some(VibeLineHelper { completion }));
-            Ok(Self::Editor(editor))
+            Ok(Self::Editor(Box::new(editor)))
         } else {
             Ok(Self::Plain(String::new()))
         }

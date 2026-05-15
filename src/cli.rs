@@ -43,7 +43,12 @@ pub enum Commands {
         about = "Check configuration, paths, agent aliases, and executables / 检查配置、路径、agent alias 和可执行文件"
     )]
     Doctor,
-    #[command(name = "agents", alias = "agent-aliases", alias = "targets", alias = "profiles")]
+    #[command(
+        name = "agents",
+        alias = "agent-aliases",
+        alias = "targets",
+        alias = "profiles"
+    )]
     #[command(about = "List, show, and test agents / 查看、展示和测试 agent")]
     Profiles(ProfilesArgs),
     #[command(name = "clis", alias = "cli-types", alias = "backends")]
@@ -245,9 +250,7 @@ pub enum ConfigCommand {
         #[arg(long, help = "Output path for the generated HTML file")]
         output: Option<PathBuf>,
     },
-    #[command(
-        about = "Open form-based config UI in browser / 在浏览器中打开表单式配置 UI"
-    )]
+    #[command(about = "Open form-based config UI in browser / 在浏览器中打开表单式配置 UI")]
     Html {
         #[arg(
             long,

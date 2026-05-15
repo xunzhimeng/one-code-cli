@@ -141,7 +141,7 @@ pub fn result_markdown(record: &RunRecord, stdout: &str, stderr: &str) -> String
         record
             .exit_code
             .map(|value| value.to_string())
-            .unwrap_or_else(|| "".to_string()),
+            .unwrap_or_default(),
         record.started_at,
         record.finished_at,
         fenced(output),

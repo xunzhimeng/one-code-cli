@@ -8,3 +8,7 @@
 *.tgz
 .DS_Store
 docs/superpowers/
+
+.nmas/
+
+.agents/

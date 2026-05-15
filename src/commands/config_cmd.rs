@@ -158,7 +158,11 @@ pub fn validate_config_semantics(config: &config::EffectiveConfig) -> OccResult<
         }
     }
     for (alias, target) in &config.backend_aliases {
+        backend::require(target)?;
         if backend_names.iter().any(|name| name == alias) {
+            if alias == target {
+                continue;
+            }
             return Err(OccError::new(
                 "backend_alias_conflict",
                 format!("CLI alias '{}' shadows a real CLI name.", alias),
@@ -173,7 +177,6 @@ pub fn validate_config_semantics(config: &config::EffectiveConfig) -> OccResult<
                 ),
             ));
         }
-        backend::require(target)?;
     }
     for (backend, profile) in &config.backend_defaults {
         backend::require(backend)?;
