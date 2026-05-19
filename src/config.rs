@@ -27,6 +27,14 @@ pub enum PromptVia {
     ArgOrFileIndirection,
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum EnvMode {
+    #[default]
+    Inherit,
+    Strict,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProxyConfig {
     #[serde(default = "default_true")]
@@ -59,8 +67,14 @@ pub struct Profile {
     pub command: Option<String>,
     pub path: Option<PathBuf>,
     pub model: Option<String>,
+    #[serde(alias = "reasoning_effort")]
+    pub effort: Option<String>,
     pub default_timeout: Option<String>,
     pub config_dir: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "is_inherit_env_mode")]
+    pub env_mode: EnvMode,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub env_allowlist: Vec<String>,
     #[serde(default)]
     pub env: BTreeMap<String, String>,
     #[serde(default)]
@@ -89,8 +103,11 @@ impl Profile {
             command: Some(default_command_name(name).to_string()),
             path: None,
             model: None,
+            effort: None,
             default_timeout: None,
             config_dir: None,
+            env_mode: EnvMode::Inherit,
+            env_allowlist: Vec::new(),
             env: BTreeMap::new(),
             args_strategy: ArgsStrategy::Builtin,
             args: Vec::new(),
@@ -102,6 +119,10 @@ impl Profile {
             builtin: true,
         }
     }
+}
+
+fn is_inherit_env_mode(mode: &EnvMode) -> bool {
+    *mode == EnvMode::Inherit
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -262,7 +283,6 @@ pub fn load(config_arg: Option<&PathBuf>, cwd: &Path) -> OccResult<EffectiveConf
                 error,
             )
         })?;
-        let text = migrate_legacy_config_toml(&text);
         let mut config: ConfigFile = toml::from_str(&text).map_err(|error| {
             OccError::new(
                 "config_parse_failed",
@@ -387,49 +407,61 @@ pub fn write_sample_config(path: &Path, force: bool) -> OccResult<()> {
     })
 }
 
-pub fn migrate_legacy_config_toml(text: &str) -> String {
-    let Ok(mut value) = text.parse::<toml::Value>() else {
-        return text.to_string();
-    };
-    let Some(table) = value.as_table_mut() else {
-        return text.to_string();
-    };
-
-    migrate_table_key(table, "default_target", "default_agent");
-    migrate_table_key(table, "default_profile", "default_agent");
-    migrate_table_key(table, "default_agent_alias", "default_agent");
-    migrate_table_key(table, "cli_defaults", "cli_type_defaults");
-    migrate_table_key(table, "backend_defaults", "cli_type_defaults");
-    migrate_table_key(table, "cli_aliases", "cli_type_aliases");
-    migrate_table_key(table, "backend_aliases", "cli_type_aliases");
-    migrate_table_key(table, "targets", "agents");
-    migrate_table_key(table, "profiles", "agents");
-    migrate_table_key(table, "agent_aliases", "agents");
-
-    if let Some(agents) = table.get_mut("agents").and_then(toml::Value::as_array_mut) {
-        for entry in agents {
-            if let Some(entry_table) = entry.as_table_mut() {
-                migrate_table_key(entry_table, "cli", "cli_type");
-                migrate_table_key(entry_table, "backend", "cli_type");
-            }
-        }
+pub fn read_config_file(path: &Path) -> OccResult<ConfigFile> {
+    if !path.exists() {
+        return Ok(ConfigFile {
+            version: Some(1),
+            ..ConfigFile::default()
+        });
     }
 
-    toml::to_string_pretty(&value).unwrap_or_else(|_| text.to_string())
+    let text = fs::read_to_string(path).map_err(|error| {
+        OccError::io(
+            "config_parse_failed",
+            format!("Failed to read '{}'", output::display_path(path)),
+            error,
+        )
+    })?;
+    let mut config: ConfigFile = toml::from_str(&text).map_err(|error| {
+        OccError::new(
+            "config_parse_failed",
+            format!(
+                "Failed to parse '{}': {}",
+                output::display_path(path),
+                error
+            ),
+        )
+    })?;
+    if config.version.is_none() {
+        config.version = Some(1);
+    }
+    normalize_profiles(&mut config.profiles);
+    Ok(config)
 }
 
-fn migrate_table_key(
-    table: &mut toml::map::Map<String, toml::Value>,
-    legacy_key: &str,
-    new_key: &str,
-) {
-    if table.contains_key(new_key) {
-        table.remove(legacy_key);
-        return;
+pub fn write_config_file(path: &Path, config: &ConfigFile) -> OccResult<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            OccError::io(
+                "doc_root_not_writable",
+                format!("Failed to create '{}'", output::display_path(parent)),
+                error,
+            )
+        })?;
     }
-    if let Some(value) = table.remove(legacy_key) {
-        table.insert(new_key.to_string(), value);
-    }
+    let text = toml::to_string_pretty(config).map_err(|error| {
+        OccError::new(
+            "serialization_failed",
+            format!("Failed to serialize config TOML: {}", error),
+        )
+    })?;
+    fs::write(path, text).map_err(|error| {
+        OccError::io(
+            "doc_root_not_writable",
+            format!("Failed to write '{}'", output::display_path(path)),
+            error,
+        )
+    })
 }
 
 pub fn sample_config_toml() -> String {
@@ -458,8 +490,21 @@ g = "gemini"
 
 [[agents]]
 name = "claude"
+aliases = ["claude-cc"]
 cli_type = "claude"
 command = "{}"
+args_strategy = "builtin"
+prompt_via = "stdin"
+non_interactive_args = ["--print", "--dangerously-skip-permissions"]
+interactive_args = ["--dangerously-skip-permissions"]
+
+# Same Claude Code CLI, separate agent config. Keep API tokens in shell env.
+[[agents]]
+name = "deepseek-cc"
+cli_type = "claude"
+command = "{}"
+model = "deepseek-chat"
+env = {{ ANTHROPIC_BASE_URL = "https://api.deepseek.com/anthropic" }}
 args_strategy = "builtin"
 prompt_via = "stdin"
 non_interactive_args = ["--print", "--dangerously-skip-permissions"]
@@ -488,9 +533,10 @@ cli_type = "gemini"
 command = "{}"
 args_strategy = "builtin"
 prompt_via = "arg-or-file-indirection"
-non_interactive_args = ["--yolo", "--skip-trust", "-p"]
+non_interactive_args = ["--yolo", "--skip-trust"]
 interactive_args = ["--yolo", "--skip-trust"]
 "#,
+        default_command_name("claude"),
         default_command_name("claude"),
         default_command_name("codex"),
         default_command_name("opencode"),

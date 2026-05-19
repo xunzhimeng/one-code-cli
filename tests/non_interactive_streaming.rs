@@ -30,7 +30,7 @@ fn compile_worker(dir: &Path) -> PathBuf {
 use std::env;
 use std::fs;
 use std::io::{self, Write};
-use std::process::Command;
+use std::process::{self, Command};
 use std::thread;
 use std::time::Duration;
 
@@ -46,9 +46,60 @@ fn main() {
             println!("small-stdout-line");
             eprintln!("small-stderr-line");
         }
+        Some("agent-one") => {
+            println!("agent-one-stdout");
+            eprintln!("agent-one-stderr");
+        }
+        Some("agent-two") => {
+            println!("agent-two-stdout");
+            eprintln!("agent-two-stderr");
+        }
+        Some("noisy") => {
+            eprintln!("\x1b[?25l");
+            eprintln!("");
+            println!("visible-noisy-stdout");
+            eprintln!("visible-noisy-stderr");
+        }
+        Some("split-ansi") => {
+            let filler = "x".repeat(8191);
+            eprint!("{filler}\x1b");
+            io::stderr().flush().unwrap();
+            thread::sleep(Duration::from_millis(20));
+            eprintln!("[?25l");
+            println!("split-ansi-visible");
+        }
         Some("invalid-stderr") => {
             println!("invalid-stdout-line");
             io::stderr().write_all(&[0xff, b'\n']).unwrap();
+        }
+        Some("env-check") => {
+            for key in [
+                "OCC_ALLOWED_PARENT",
+                "BAD_PARENT_SECRET",
+                "ANTHROPIC_BASE_URL",
+                "CHILD_ONLY",
+                "CLAUDE_CONFIG_DIR",
+            ] {
+                match env::var(key) {
+                    Ok(value) => println!("{key}={value}"),
+                    Err(_) => println!("{key}=<missing>"),
+                }
+            }
+            if env::var("OCC_ALLOWED_PARENT").as_deref() != Ok("allowed-value") {
+                process::exit(3);
+            }
+            if env::var_os("BAD_PARENT_SECRET").is_some() {
+                process::exit(4);
+            }
+            if env::var_os("ANTHROPIC_BASE_URL").is_some() {
+                process::exit(5);
+            }
+            if env::var("CHILD_ONLY").as_deref() != Ok("child-value") {
+                process::exit(6);
+            }
+            if env::var_os("CLAUDE_CONFIG_DIR").is_none() {
+                process::exit(7);
+            }
         }
         Some("timeout") => {
             println!("partial-stdout-before-timeout");
@@ -112,6 +163,99 @@ prompt_via = "stdin"
             toml_string(&doc_root),
             toml_string(worker),
             mode
+        ),
+    )
+    .unwrap();
+    config
+}
+
+fn write_session_binding_config(dir: &Path, worker: &Path) -> PathBuf {
+    let config = dir.join("config-session-binding.toml");
+    let doc_root = dir.join("docs-session-binding");
+    fs::write(
+        &config,
+        format!(
+            r#"version = 1
+doc_root = "{}"
+default_agent = "beta"
+
+[[agents]]
+name = "alpha"
+cli_type = "claude"
+path = "{}"
+model = "alpha-model"
+args_strategy = "override"
+args = ["small"]
+prompt_via = "stdin"
+
+[[agents]]
+name = "beta"
+cli_type = "claude"
+path = "{}"
+model = "beta-model"
+args_strategy = "override"
+args = ["small"]
+prompt_via = "stdin"
+"#,
+            toml_string(&doc_root),
+            toml_string(worker),
+            toml_string(worker),
+        ),
+    )
+    .unwrap();
+    config
+}
+
+fn write_multi_agent_config(dir: &Path, worker: &Path) -> PathBuf {
+    let config = dir.join("config-multi-agent.toml");
+    let doc_root = dir.join("docs-multi-agent");
+    fs::write(
+        &config,
+        format!(
+            r#"version = 1
+doc_root = "{}"
+
+[[agents]]
+name = "one"
+cli_type = "claude"
+path = "{}"
+model = "model-one"
+env = {{ ANTHROPIC_BASE_URL = "https://one.example.test" }}
+args_strategy = "override"
+args = ["agent-one"]
+prompt_via = "stdin"
+
+[[agents]]
+name = "two"
+cli_type = "claude"
+path = "{}"
+model = "model-two"
+env = {{ ANTHROPIC_BASE_URL = "https://two.example.test" }}
+args_strategy = "override"
+args = ["agent-two"]
+prompt_via = "stdin"
+
+[[agents]]
+name = "noisy"
+cli_type = "claude"
+path = "{}"
+args_strategy = "override"
+args = ["noisy"]
+prompt_via = "stdin"
+
+[[agents]]
+name = "split-ansi"
+cli_type = "claude"
+path = "{}"
+args_strategy = "override"
+args = ["split-ansi"]
+prompt_via = "stdin"
+"#,
+            toml_string(&doc_root),
+            toml_string(worker),
+            toml_string(worker),
+            toml_string(worker),
+            toml_string(worker),
         ),
     )
     .unwrap();
@@ -233,7 +377,7 @@ args_strategy = "builtin"
     config
 }
 
-fn write_model_config(dir: &Path, worker: &Path) -> PathBuf {
+fn write_model_config_with_mode(dir: &Path, worker: &Path, mode: &str) -> PathBuf {
     let config = dir.join("config-model.toml");
     let doc_root = dir.join("docs-model");
     fs::write(
@@ -248,15 +392,243 @@ cli_type = "claude"
 path = "{}"
 model = "profile-model"
 args_strategy = "override"
-args = ["large"]
+args = ["{}"]
 prompt_via = "stdin"
 "#,
             toml_string(&doc_root),
             toml_string(worker),
+            mode,
         ),
     )
     .unwrap();
     config
+}
+
+fn write_model_config(dir: &Path, worker: &Path) -> PathBuf {
+    write_model_config_with_mode(dir, worker, "large")
+}
+
+fn write_model_effort_override_codex_config(dir: &Path, worker: &Path, mode: &str) -> PathBuf {
+    let config = dir.join("config-model-effort-codex.toml");
+    let doc_root = dir.join("docs-model-effort-codex");
+    fs::write(
+        &config,
+        format!(
+            r#"version = 1
+doc_root = "{}"
+
+[[agents]]
+name = "mock"
+cli_type = "codex"
+path = "{}"
+model = "profile-model"
+effort = "high"
+args_strategy = "override"
+args = ["{}"]
+prompt_via = "stdin"
+"#,
+            toml_string(&doc_root),
+            toml_string(worker),
+            mode,
+        ),
+    )
+    .unwrap();
+    config
+}
+
+fn write_model_effort_builtin_codex_config(dir: &Path) -> PathBuf {
+    let config = dir.join("config-model-effort-codex-builtin.toml");
+    let doc_root = dir.join("docs-model-effort-codex-builtin");
+    fs::write(
+        &config,
+        format!(
+            r#"version = 1
+doc_root = "{}"
+
+[[agents]]
+name = "mock"
+cli_type = "codex"
+model = "profile-model"
+effort = "high"
+args_strategy = "builtin"
+"#,
+            toml_string(&doc_root),
+        ),
+    )
+    .unwrap();
+    config
+}
+
+fn write_isolated_cli_config(dir: &Path, worker: &Path) -> PathBuf {
+    let config = dir.join("config-isolated-clis.toml");
+    let doc_root = dir.join("docs-isolated-clis");
+    fs::write(
+        &config,
+        format!(
+            r#"version = 1
+doc_root = "{}"
+
+[[agents]]
+name = "claude-iso"
+cli_type = "claude"
+path = "{}"
+config_dir = "{}"
+args_strategy = "override"
+args = ["small"]
+prompt_via = "stdin"
+
+[[agents]]
+name = "codex-iso"
+cli_type = "codex"
+path = "{}"
+config_dir = "{}"
+args_strategy = "override"
+args = ["small"]
+prompt_via = "stdin"
+
+[[agents]]
+name = "opencode-iso"
+cli_type = "opencode"
+path = "{}"
+config_dir = "{}"
+args_strategy = "override"
+args = ["small"]
+prompt_via = "arg"
+
+[[agents]]
+name = "gemini-iso"
+cli_type = "gemini"
+path = "{}"
+config_dir = "{}"
+args_strategy = "override"
+args = ["small"]
+prompt_via = "arg"
+"#,
+            toml_string(&doc_root),
+            toml_string(worker),
+            toml_string(&dir.join("systems").join("claude")),
+            toml_string(worker),
+            toml_string(&dir.join("systems").join("codex")),
+            toml_string(worker),
+            toml_string(&dir.join("systems").join("opencode")),
+            toml_string(worker),
+            toml_string(&dir.join("systems").join("gemini")),
+        ),
+    )
+    .unwrap();
+    config
+}
+
+fn write_strict_env_config(dir: &Path, worker: &Path) -> PathBuf {
+    let config = dir.join("config-strict-env.toml");
+    let doc_root = dir.join("docs-strict-env");
+    fs::write(
+        &config,
+        format!(
+            r#"version = 1
+doc_root = "{}"
+
+[[agents]]
+name = "strict-env"
+cli_type = "claude"
+path = "{}"
+config_dir = "{}"
+env_mode = "strict"
+env_allowlist = ["OCC_ALLOWED_PARENT"]
+env = {{ CHILD_ONLY = "child-value" }}
+args_strategy = "override"
+args = ["env-check"]
+prompt_via = "stdin"
+"#,
+            toml_string(&doc_root),
+            toml_string(worker),
+            toml_string(&dir.join("systems").join("strict-claude")),
+        ),
+    )
+    .unwrap();
+    config
+}
+
+fn run_occ_dry_agent(config: &Path, cwd: &Path, agent: &str) -> serde_json::Value {
+    let output = Command::new(env!("CARGO_BIN_EXE_occ"))
+        .arg("--config")
+        .arg(config)
+        .arg("run")
+        .arg("--agent")
+        .arg(agent)
+        .arg("--cwd")
+        .arg(cwd)
+        .arg("--prompt")
+        .arg("hello")
+        .arg("--output")
+        .arg("json")
+        .arg("--dry-run")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "occ failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
+fn run_occ_dry_with_env(
+    config: &Path,
+    cwd: &Path,
+    extra: &[&str],
+    envs: &[(&str, &Path)],
+) -> serde_json::Value {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_occ"));
+    command
+        .arg("--config")
+        .arg(config)
+        .arg("run")
+        .arg("--agent")
+        .arg("mock")
+        .arg("--cwd")
+        .arg(cwd)
+        .arg("--prompt")
+        .arg("hello")
+        .arg("--output")
+        .arg("json")
+        .arg("--dry-run");
+    for (key, value) in envs {
+        command.env(key, value);
+    }
+    if let Some((_, home)) = envs.iter().find(|(key, _)| *key == "USERPROFILE") {
+        let home_text = home.to_string_lossy().to_string();
+        if home_text.len() >= 2 && home_text.as_bytes()[1] == b':' {
+            command.env("HOMEDRIVE", &home_text[..2]);
+            command.env("HOMEPATH", &home_text[2..]);
+        }
+        command.env("APPDATA", home.join("AppData").join("Roaming"));
+        command.env("LOCALAPPDATA", home.join("AppData").join("Local"));
+    }
+    for arg in extra {
+        command.arg(arg);
+    }
+    let output = command.output().unwrap();
+    assert!(
+        output.status.success(),
+        "occ failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
+fn apply_home_env(command: &mut Command, home: &Path) {
+    command.env("USERPROFILE", home);
+    command.env("HOME", home);
+    let home_text = home.to_string_lossy().to_string();
+    if home_text.len() >= 2 && home_text.as_bytes()[1] == b':' {
+        command.env("HOMEDRIVE", &home_text[..2]);
+        command.env("HOMEPATH", &home_text[2..]);
+    }
+    command.env("APPDATA", home.join("AppData").join("Roaming"));
+    command.env("LOCALAPPDATA", home.join("AppData").join("Local"));
 }
 
 fn write_alias_config(dir: &Path, worker: &Path) -> PathBuf {
@@ -630,6 +1002,44 @@ fn run_occ_backend(config: &Path, cwd: &Path, backend: &str) -> serde_json::Valu
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
+fn run_occ_agents(config: &Path, cwd: &Path, agents: &str, stream: bool) -> std::process::Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_occ"));
+    command
+        .arg("--config")
+        .arg(config)
+        .arg("run")
+        .arg("--agents")
+        .arg(agents)
+        .arg("--cwd")
+        .arg(cwd)
+        .arg("--prompt")
+        .arg("hello")
+        .arg("--output")
+        .arg("json");
+    if stream {
+        command.arg("--stream");
+    }
+    command.output().unwrap()
+}
+
+fn run_occ_agents_dry(config: &Path, cwd: &Path, agents: &str) -> std::process::Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_occ"));
+    command
+        .arg("--config")
+        .arg(config)
+        .arg("run")
+        .arg("--agents")
+        .arg(agents)
+        .arg("--cwd")
+        .arg(cwd)
+        .arg("--prompt")
+        .arg("hello")
+        .arg("--output")
+        .arg("json")
+        .arg("--dry-run");
+    command.output().unwrap()
+}
+
 fn run_occ_expect_failure(config: &Path, args: &[&str]) -> String {
     let mut command = Command::new(env!("CARGO_BIN_EXE_occ"));
     command.arg("--config").arg(config);
@@ -713,6 +1123,121 @@ fn non_interactive_large_output_is_streamed_to_logs() {
 }
 
 #[test]
+fn multi_agent_run_executes_each_agent_and_reports_batch_json() {
+    let dir = temp_dir("multi-agent-run");
+    let worker = compile_worker(&dir);
+    let config = write_multi_agent_config(&dir, &worker);
+
+    let output = run_occ_agents(&config, &dir, "one,two", false);
+    assert!(
+        output.status.success(),
+        "occ failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["success"], true);
+    assert!(response["batch_id"]
+        .as_str()
+        .is_some_and(|value| value.starts_with("batch_")));
+    let runs = response["runs"].as_array().unwrap();
+    assert_eq!(runs.len(), 2);
+    assert_eq!(runs[0]["agent"], "one");
+    assert_eq!(runs[0]["model"], "model-one");
+    assert_eq!(runs[1]["agent"], "two");
+    assert_eq!(runs[1]["model"], "model-two");
+
+    let first_result = PathBuf::from(runs[0]["result_path"].as_str().unwrap());
+    let second_result = PathBuf::from(runs[1]["result_path"].as_str().unwrap());
+    assert!(fs::read_to_string(first_result)
+        .unwrap()
+        .contains("agent-one-stdout"));
+    assert!(fs::read_to_string(second_result)
+        .unwrap()
+        .contains("agent-two-stdout"));
+}
+
+#[test]
+fn multi_agent_stream_prefixes_live_output_and_filters_noise() {
+    let dir = temp_dir("multi-agent-stream");
+    let worker = compile_worker(&dir);
+    let config = write_multi_agent_config(&dir, &worker);
+
+    let output = run_occ_agents(&config, &dir, "one,noisy", true);
+    assert!(
+        output.status.success(),
+        "occ failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("[one] agent-one-stdout"));
+    assert!(stderr.contains("[one] agent-one-stderr"));
+    assert!(stderr.contains("[noisy] visible-noisy-stdout"));
+    assert!(stderr.contains("[noisy] visible-noisy-stderr"));
+    assert!(!stderr.contains("[?25l"));
+}
+
+#[test]
+fn multi_agent_stream_filters_ansi_sequences_split_across_chunks() {
+    let dir = temp_dir("multi-agent-split-ansi");
+    let worker = compile_worker(&dir);
+    let config = write_multi_agent_config(&dir, &worker);
+
+    let output = run_occ_agents(&config, &dir, "split-ansi", true);
+    assert!(
+        output.status.success(),
+        "occ failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("[split-ansi] split-ansi-visible"));
+    assert!(!stderr.contains("[?25l"));
+}
+
+#[test]
+fn multi_agent_dry_run_reports_each_agent_plan_without_creating_runs() {
+    let dir = temp_dir("multi-agent-dry-run");
+    let worker = compile_worker(&dir);
+    let config = write_multi_agent_config(&dir, &worker);
+
+    let output = run_occ_agents_dry(&config, &dir, "one,two");
+    assert!(
+        output.status.success(),
+        "occ failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["success"], true);
+    assert!(response["batch_id"]
+        .as_str()
+        .is_some_and(|value| value.starts_with("batch_")));
+    let runs = response["runs"].as_array().unwrap();
+    assert_eq!(runs.len(), 2);
+    assert_eq!(runs[0]["agent"], "one");
+    assert_eq!(runs[0]["context"]["model"], "model-one");
+    assert!(runs[0]["command"]["args"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|arg| arg == "agent-one"));
+    assert_eq!(runs[1]["agent"], "two");
+    assert_eq!(runs[1]["context"]["model"], "model-two");
+    assert!(runs[1]["command"]["args"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|arg| arg == "agent-two"));
+    assert!(!dir.join("docs-multi-agent").join("runs").exists());
+}
+
+#[test]
 fn help_describes_top_level_commands() {
     let output = Command::new(env!("CARGO_BIN_EXE_occ"))
         .arg("--help")
@@ -729,6 +1254,123 @@ fn help_describes_top_level_commands() {
     assert!(stdout.contains("Run one delegated task"));
     assert!(stdout.contains("vibe"));
     assert!(stdout.contains("Chat with a selected coding CLI"));
+}
+
+#[test]
+fn help_uses_user_facing_agent_and_cli_terms() {
+    let run_help = Command::new(env!("CARGO_BIN_EXE_occ"))
+        .arg("run")
+        .arg("--help")
+        .output()
+        .unwrap();
+    assert!(
+        run_help.status.success(),
+        "occ failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_help.stdout),
+        String::from_utf8_lossy(&run_help.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&run_help.stdout);
+    assert!(stdout.contains("--agent <AGENT>"));
+    assert!(stdout.contains("--cli <CLI>"));
+    assert!(!stdout.contains("<PROFILE>"));
+    assert!(!stdout.contains("<BACKEND>"));
+
+    let add_help = Command::new(env!("CARGO_BIN_EXE_occ"))
+        .arg("agents")
+        .arg("add")
+        .arg("--help")
+        .output()
+        .unwrap();
+    assert!(
+        add_help.status.success(),
+        "occ failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&add_help.stdout),
+        String::from_utf8_lossy(&add_help.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&add_help.stdout);
+    assert!(stdout.contains("--cli <CLI>"));
+    assert!(!stdout.contains("<BACKEND>"));
+}
+
+#[test]
+fn legacy_agent_and_cli_command_names_are_rejected() {
+    for command in [
+        "targets",
+        "profiles",
+        "agent-aliases",
+        "backends",
+        "cli-types",
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_occ"))
+            .arg(command)
+            .output()
+            .unwrap();
+        assert!(
+            !output.status.success(),
+            "legacy command unexpectedly succeeded: {command}\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[test]
+fn legacy_agent_and_cli_option_aliases_are_rejected() {
+    for args in [
+        vec![
+            "run",
+            "--profile",
+            "claude",
+            "--prompt",
+            "hello",
+            "--dry-run",
+        ],
+        vec![
+            "run",
+            "--target",
+            "claude",
+            "--prompt",
+            "hello",
+            "--dry-run",
+        ],
+        vec![
+            "run",
+            "--agent-alias",
+            "claude",
+            "--prompt",
+            "hello",
+            "--dry-run",
+        ],
+        vec![
+            "run",
+            "--backend",
+            "claude",
+            "--prompt",
+            "hello",
+            "--dry-run",
+        ],
+        vec![
+            "run",
+            "--cli-type",
+            "claude",
+            "--prompt",
+            "hello",
+            "--dry-run",
+        ],
+        vec!["agents", "add", "legacy", "--backend", "claude"],
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_occ"))
+            .args(&args)
+            .output()
+            .unwrap();
+        assert!(
+            !output.status.success(),
+            "legacy args unexpectedly succeeded: {:?}\nstdout:\n{}\nstderr:\n{}",
+            args,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 }
 
 #[test]
@@ -825,6 +1467,75 @@ fn skills_install_removes_obsolete_bundled_files() {
 }
 
 #[test]
+fn skills_install_exports_model_aware_using_one_code_cli_docs() {
+    let dir = temp_dir("skills-install-model-aware");
+    let target = dir.join("skills");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_occ"))
+        .arg("skills")
+        .arg("install")
+        .arg("--target")
+        .arg(&target)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "occ failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let skill_dir = target.join("using-one-code-cli");
+    let skill_toml = fs::read_to_string(skill_dir.join("skill.toml")).unwrap();
+    let skill_md = fs::read_to_string(skill_dir.join("SKILL.md")).unwrap();
+    let run_with_agent =
+        fs::read_to_string(skill_dir.join("examples").join("run-with-agent.md")).unwrap();
+
+    assert!(skill_toml.contains("model = \"Optional model override for the delegated run.\""));
+    assert!(skill_toml
+        .contains("effort = \"Optional reasoning effort override for the delegated run.\""));
+    assert!(skill_toml.contains("model = \"Resolved model used for the run when available.\""));
+    assert!(skill_toml.contains("model_source = \"Where the resolved model came from.\""));
+    assert!(skill_toml
+        .contains("effort = \"Resolved reasoning effort used for the run when available.\""));
+    assert!(skill_toml.contains("effort_source = \"Where the resolved effort came from.\""));
+    assert!(skill_md.contains("model override"));
+    assert!(skill_md.contains("model_source"));
+    assert!(skill_md.contains("effort override"));
+    assert!(skill_md.contains("effort_source"));
+    assert!(run_with_agent.contains("--model <model>"));
+    assert!(run_with_agent.contains("--effort <level>"));
+}
+
+#[test]
+fn skills_install_defaults_to_agents_skills_under_home() {
+    let dir = temp_dir("skills-install-default-target");
+    let home = dir.join("home");
+    fs::create_dir_all(&home).unwrap();
+
+    let output = {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_occ"));
+        apply_home_env(&mut command, &home);
+        command.arg("skills").arg("install").output().unwrap()
+    };
+
+    assert!(
+        output.status.success(),
+        "occ failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let installed = home
+        .join(".agents")
+        .join("skills")
+        .join("using-one-code-cli");
+    assert!(installed.join("SKILL.md").exists());
+    assert!(installed.join("skill.toml").exists());
+}
+
+#[test]
 fn config_show_uses_language_preference_and_explains_fields() {
     let dir = temp_dir("localized-config-show");
     let worker = compile_worker(&dir);
@@ -858,6 +1569,439 @@ fn config_show_uses_language_preference_and_explains_fields() {
 }
 
 #[test]
+fn settings_export_uses_target_config_instead_of_flattened_effective_config() {
+    let dir = temp_dir("settings-target-config");
+    let config = dir.join("config-settings-target.toml");
+    fs::write(
+        &config,
+        r#"version = 1
+default_agent = "project-agent"
+
+[[agents]]
+name = "project-agent"
+cli_type = "codex"
+args_strategy = "builtin"
+"#,
+    )
+    .unwrap();
+    let output_html = dir.join("settings.html");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_occ"))
+        .arg("--config")
+        .arg(&config)
+        .arg("settings")
+        .arg("--target")
+        .arg("loaded")
+        .arg("--output")
+        .arg(&output_html)
+        .arg("--no-open")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "occ failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let html = fs::read_to_string(&output_html).unwrap();
+    assert!(html.contains("project-agent"));
+    assert!(!html.contains("name = &quot;codex&quot;"));
+}
+
+#[test]
+fn agents_add_writes_isolated_agent_config() {
+    let dir = temp_dir("agents-add");
+    let config = dir.join("config-add.toml");
+    fs::write(&config, "version = 1\n").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_occ"))
+        .arg("--config")
+        .arg(&config)
+        .arg("agents")
+        .arg("add")
+        .arg("deepseek-cc")
+        .arg("--cli")
+        .arg("claude")
+        .arg("--model")
+        .arg("deepseek-chat")
+        .arg("--env-allow")
+        .arg("HTTPS_PROXY")
+        .arg("--env")
+        .arg("ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic")
+        .arg("--set-cli-default")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "occ failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("added: deepseek-cc"));
+
+    let raw = fs::read_to_string(&config).unwrap();
+    assert!(raw.contains("name = \"deepseek-cc\""));
+    assert!(raw.contains("cli_type = \"claude\""));
+    assert!(raw.contains("config_dir"));
+    assert!(raw.contains("model = \"deepseek-chat\""));
+    assert!(raw.contains("env_mode = \"strict\""));
+    assert!(raw.contains("env_allowlist = [\"HTTPS_PROXY\"]"));
+    assert!(raw.contains("ANTHROPIC_BASE_URL"));
+    assert!(raw.contains("claude = \"deepseek-cc\""));
+
+    let shown = run_occ_text(&config, &["agents", "show", "deepseek-cc"]);
+    assert!(shown.contains("model = \"deepseek-chat\""));
+    assert!(shown.contains("ANTHROPIC_BASE_URL"));
+}
+
+#[test]
+fn agents_add_can_use_default_inherited_cli_environment() {
+    let dir = temp_dir("agents-add-inherit-env");
+    let config = dir.join("config-add-inherit.toml");
+    fs::write(&config, "version = 1\n").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_occ"))
+        .arg("--config")
+        .arg(&config)
+        .arg("agents")
+        .arg("add")
+        .arg("default-claude")
+        .arg("--cli")
+        .arg("claude")
+        .arg("--inherit-env")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "occ failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let raw = fs::read_to_string(&config).unwrap();
+    assert!(raw.contains("name = \"default-claude\""));
+    assert!(!raw.contains("env_mode = \"strict\""));
+    assert!(!raw.contains("config_dir"));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_occ"))
+        .arg("--config")
+        .arg(&config)
+        .arg("run")
+        .arg("--agent")
+        .arg("default-claude")
+        .arg("--cwd")
+        .arg(&dir)
+        .arg("--prompt")
+        .arg("hello")
+        .arg("--output")
+        .arg("json")
+        .arg("--dry-run")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "occ failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let env_keys = response["command"]["env_keys"].as_array().unwrap();
+    assert!(!env_keys.iter().any(|key| key == "CLAUDE_CONFIG_DIR"));
+}
+
+#[test]
+fn agents_add_uses_stable_safe_config_dir_segment() {
+    let dir = temp_dir("agents-add-safe-segment");
+    let config = dir.join("config-add-safe-segment.toml");
+    fs::write(&config, "version = 1\n").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_occ"))
+        .arg("--config")
+        .arg(&config)
+        .arg("agents")
+        .arg("add")
+        .arg("DeepSeek CC")
+        .arg("--cli")
+        .arg("claude")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "occ failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let raw = fs::read_to_string(&config).unwrap().replace('\\', "/");
+    assert!(raw.contains("/agents/deepseek-cc/system"));
+}
+
+#[test]
+fn claude_dry_run_assigns_native_session_id_for_future_resume() {
+    let dir = temp_dir("claude-native-session-id");
+    let config = dir.join("config-claude-native-session.toml");
+    fs::write(
+        &config,
+        r#"version = 1
+
+[[agents]]
+name = "mock"
+cli_type = "claude"
+args_strategy = "builtin"
+"#,
+    )
+    .unwrap();
+
+    let response = run_occ_dry(&config, &dir, &[]);
+    let backend_session_id = response["context"]["backend_session_id"]
+        .as_str()
+        .expect("backend_session_id should be assigned");
+    assert!(backend_session_id.contains('-'));
+    let args = response["command"]["args"].as_array().unwrap();
+    assert!(args.iter().any(|arg| arg == "--session-id"));
+    assert!(args.iter().any(|arg| arg == backend_session_id));
+}
+
+#[test]
+fn run_with_missing_session_id_fails_instead_of_creating_new_session() {
+    let dir = temp_dir("missing-session-id");
+    let worker = compile_worker(&dir);
+    let config = write_config(&dir, &worker, "small");
+
+    let error = run_occ_expect_failure(
+        &config,
+        &[
+            "run",
+            "--agent",
+            "mock",
+            "--cwd",
+            dir.to_str().unwrap(),
+            "--session",
+            "sess_missing",
+            "--prompt",
+            "hello",
+        ],
+    );
+    assert!(error.contains("session_not_found"));
+}
+
+#[test]
+fn run_with_session_id_keeps_session_agent_without_resume_flag() {
+    let dir = temp_dir("session-id-keeps-agent");
+    let worker = compile_worker(&dir);
+    let config = write_session_binding_config(&dir, &worker);
+
+    let first = Command::new(env!("CARGO_BIN_EXE_occ"))
+        .arg("--config")
+        .arg(&config)
+        .arg("run")
+        .arg("--agent")
+        .arg("alpha")
+        .arg("--cwd")
+        .arg(&dir)
+        .arg("--prompt")
+        .arg("hello")
+        .arg("--output")
+        .arg("json")
+        .output()
+        .unwrap();
+    assert!(
+        first.status.success(),
+        "occ failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&first.stdout),
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let first_json: serde_json::Value = serde_json::from_slice(&first.stdout).unwrap();
+    assert_eq!(first_json["agent"], "alpha");
+    let session_id = first_json["session_id"].as_str().unwrap();
+
+    let second = Command::new(env!("CARGO_BIN_EXE_occ"))
+        .arg("--config")
+        .arg(&config)
+        .arg("run")
+        .arg("--session")
+        .arg(session_id)
+        .arg("--cwd")
+        .arg(&dir)
+        .arg("--prompt")
+        .arg("follow up")
+        .arg("--output")
+        .arg("json")
+        .output()
+        .unwrap();
+    assert!(
+        second.status.success(),
+        "occ failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&second.stdout),
+        String::from_utf8_lossy(&second.stderr)
+    );
+    let second_json: serde_json::Value = serde_json::from_slice(&second.stdout).unwrap();
+    assert_eq!(second_json["agent"], "alpha");
+    assert_eq!(second_json["model"], "alpha-model");
+    assert_eq!(second_json["model_source"], "session");
+
+    let mismatch = Command::new(env!("CARGO_BIN_EXE_occ"))
+        .arg("--config")
+        .arg(&config)
+        .arg("run")
+        .arg("--session")
+        .arg(session_id)
+        .arg("--agent")
+        .arg("beta")
+        .arg("--cwd")
+        .arg(&dir)
+        .arg("--prompt")
+        .arg("wrong agent")
+        .output()
+        .unwrap();
+    assert!(
+        !mismatch.status.success(),
+        "occ unexpectedly succeeded\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&mismatch.stdout),
+        String::from_utf8_lossy(&mismatch.stderr)
+    );
+    assert!(String::from_utf8_lossy(&mismatch.stderr).contains("session_agent_mismatch"));
+}
+
+#[test]
+fn legacy_config_agent_cli_names_are_not_migrated() {
+    let dir = temp_dir("legacy-config-names");
+    let config = dir.join("config-legacy.toml");
+    fs::write(
+        &config,
+        r#"version = 1
+
+[[agents]]
+name = "legacy"
+backend = "claude"
+"#,
+    )
+    .unwrap();
+
+    let error = run_occ_expect_failure(&config, &["agents", "list"]);
+    assert!(error.contains("config_parse_failed"));
+}
+
+#[test]
+fn config_dir_is_mapped_to_cli_specific_isolation_env() {
+    let dir = temp_dir("config-dir-isolation-env");
+    let worker = compile_worker(&dir);
+    let codex_system = dir.join("systems").join("codex");
+    fs::create_dir_all(&codex_system).unwrap();
+    fs::write(
+        codex_system.join("config.toml"),
+        "model = \"isolated-codex-model\"\nmodel_reasoning_effort = \"xhigh\"\n",
+    )
+    .unwrap();
+    let config = write_isolated_cli_config(&dir, &worker);
+
+    let claude = run_occ_dry_agent(&config, &dir, "claude-iso");
+    let claude_env = claude["command"]["env_keys"].as_array().unwrap();
+    assert!(claude_env.iter().any(|key| key == "CLAUDE_CONFIG_DIR"));
+
+    let codex = run_occ_dry_agent(&config, &dir, "codex-iso");
+    assert_eq!(codex["context"]["model"], "isolated-codex-model");
+    assert_eq!(codex["context"]["effort"], "xhigh");
+    assert_eq!(codex["model_source"], "cli-config");
+    assert_eq!(codex["effort_source"], "cli-config");
+    let codex_env = codex["command"]["env_keys"].as_array().unwrap();
+    assert!(codex_env.iter().any(|key| key == "CODEX_HOME"));
+
+    let opencode = run_occ_dry_agent(&config, &dir, "opencode-iso");
+    let opencode_env = opencode["command"]["env_keys"].as_array().unwrap();
+    assert!(opencode_env.iter().any(|key| key == "OPENCODE_CONFIG_DIR"));
+
+    let gemini = run_occ_dry_agent(&config, &dir, "gemini-iso");
+    let gemini_env = gemini["command"]["env_keys"].as_array().unwrap();
+    assert!(gemini_env.iter().any(|key| key == "HOME"));
+    if cfg!(windows) {
+        assert!(gemini_env.iter().any(|key| key == "USERPROFILE"));
+        assert!(gemini_env.iter().any(|key| key == "APPDATA"));
+        assert!(gemini_env.iter().any(|key| key == "LOCALAPPDATA"));
+    }
+}
+
+#[test]
+fn strict_env_mode_rebuilds_child_env_from_agent_allowlist() {
+    let dir = temp_dir("strict-env-mode");
+    let worker = compile_worker(&dir);
+    let config = write_strict_env_config(&dir, &worker);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_occ"))
+        .env("OCC_ALLOWED_PARENT", "allowed-value")
+        .env("BAD_PARENT_SECRET", "must-not-leak")
+        .env("ANTHROPIC_BASE_URL", "https://must-not-leak.example")
+        .arg("--config")
+        .arg(&config)
+        .arg("run")
+        .arg("--agent")
+        .arg("strict-env")
+        .arg("--cwd")
+        .arg(&dir)
+        .arg("--prompt")
+        .arg("hello")
+        .arg("--output")
+        .arg("json")
+        .arg("--timeout")
+        .arg("10s")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "occ failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["success"], true);
+    let result = fs::read_to_string(response["result_path"].as_str().unwrap()).unwrap();
+    assert!(result.contains("OCC_ALLOWED_PARENT=allowed-value"));
+    assert!(result.contains("BAD_PARENT_SECRET=<missing>"));
+    assert!(result.contains("ANTHROPIC_BASE_URL=<missing>"));
+    assert!(result.contains("CHILD_ONLY=child-value"));
+    assert!(result.contains("CLAUDE_CONFIG_DIR="));
+}
+
+#[test]
+fn strict_env_mode_still_forwards_enabled_proxy_keys() {
+    let dir = temp_dir("strict-env-proxy");
+    let worker = compile_worker(&dir);
+    let config = write_strict_env_config(&dir, &worker);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_occ"))
+        .env("HTTPS_PROXY", "http://127.0.0.1:8317")
+        .arg("--config")
+        .arg(&config)
+        .arg("run")
+        .arg("--agent")
+        .arg("strict-env")
+        .arg("--cwd")
+        .arg(&dir)
+        .arg("--prompt")
+        .arg("hello")
+        .arg("--output")
+        .arg("json")
+        .arg("--dry-run")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "occ failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let env_keys = response["command"]["env_keys"].as_array().unwrap();
+    assert!(env_keys.iter().any(|key| key == "HTTPS_PROXY"));
+}
+
+#[test]
 fn vibe_slash_commands_can_switch_backend_model_and_report_status() {
     let dir = temp_dir("vibe-slash-commands");
     let worker = compile_worker(&dir);
@@ -872,6 +2016,37 @@ fn vibe_slash_commands_can_switch_backend_model_and_report_status() {
     assert!(output.contains("cli: codex"));
     assert!(output.contains("model: test-model"));
     assert!(output.contains("/cli <name>"));
+    assert!(!output.contains("/target"));
+    assert!(!output.contains("/profile"));
+    assert!(!output.contains("/backend"));
+    assert!(!output.contains("/cli-type"));
+}
+
+#[test]
+fn vibe_run_summary_reports_effective_model_and_source() {
+    let dir = temp_dir("vibe-run-model-summary");
+    let worker = compile_worker(&dir);
+    let config = write_model_effort_override_codex_config(&dir, &worker, "small");
+
+    let output = run_occ_text_with_stdin(&config, &["vibe", "--agent", "mock"], "hello\n/exit\n");
+
+    assert!(output.contains("model: profile-model"));
+    assert!(output.contains("model_source: agent"));
+    assert!(output.contains("effort: high"));
+    assert!(output.contains("effort_source: agent"));
+}
+
+#[test]
+fn vibe_slash_commands_can_switch_effort_and_report_status() {
+    let dir = temp_dir("vibe-slash-effort");
+    let worker = compile_worker(&dir);
+    let config = write_alias_config(&dir, &worker);
+
+    let output =
+        run_occ_text_with_stdin(&config, &["vibe"], "/help\n/effort xhigh\n/status\n/exit\n");
+
+    assert!(output.contains("effort: xhigh"));
+    assert!(output.contains("/effort <level>"));
 }
 
 #[test]
@@ -1108,6 +2283,107 @@ fn model_source_is_reported_for_profile_and_cli_model() {
 }
 
 #[test]
+fn codex_dry_run_reports_effort_source_and_args() {
+    let dir = temp_dir("codex-effort-dry");
+    let config = write_model_effort_builtin_codex_config(&dir);
+
+    let profile = run_occ_dry(&config, &dir, &[]);
+    assert_eq!(profile["context"]["model"], "profile-model");
+    assert_eq!(profile["context"]["effort"], "high");
+    assert_eq!(profile["model_source"], "agent");
+    assert_eq!(profile["effort_source"], "agent");
+
+    let cli = run_occ_dry(
+        &config,
+        &dir,
+        &["--model", "cli-model", "--effort", "xhigh"],
+    );
+    assert_eq!(cli["context"]["model"], "cli-model");
+    assert_eq!(cli["context"]["effort"], "xhigh");
+    assert_eq!(cli["model_source"], "cli-arg");
+    assert_eq!(cli["effort_source"], "cli-arg");
+    assert!(cli["command"]["args"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|arg| arg.as_str().unwrap() == "--model"));
+    assert!(cli["command"]["args"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|arg| arg.as_str().unwrap() == "cli-model"));
+    assert!(cli["command"]["args"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|arg| arg.as_str().unwrap() == "model_reasoning_effort=\"xhigh\""));
+}
+
+#[test]
+fn codex_cli_config_defaults_are_reported_for_model_and_effort() {
+    let dir = temp_dir("codex-cli-defaults");
+    let home = dir.join("home");
+    let codex_home = home.join(".codex");
+    fs::create_dir_all(&codex_home).unwrap();
+    fs::write(
+        codex_home.join("config.toml"),
+        "model = \"gpt-5.4\"\nmodel_reasoning_effort = \"xhigh\"\n",
+    )
+    .unwrap();
+
+    let config = write_model_effort_builtin_codex_config(&dir);
+    let response = run_occ_dry_with_env(&config, &dir, &[], &[("CODEX_HOME", &codex_home)]);
+
+    assert_eq!(response["context"]["model"], "profile-model");
+    assert_eq!(response["context"]["effort"], "high");
+
+    let worker = compile_worker(&dir);
+    let config = dir.join("config-cli-defaults.toml");
+    fs::write(
+        &config,
+        format!(
+            r#"version = 1
+doc_root = "{}"
+
+[[agents]]
+name = "mock"
+cli_type = "codex"
+path = "{}"
+args_strategy = "override"
+args = ["small"]
+prompt_via = "stdin"
+"#,
+            toml_string(&dir.join("docs-cli-defaults")),
+            toml_string(&worker),
+        ),
+    )
+    .unwrap();
+
+    let response = run_occ_dry_with_env(&config, &dir, &[], &[("CODEX_HOME", &codex_home)]);
+    assert_eq!(response["context"]["model"], "gpt-5.4");
+    assert_eq!(response["context"]["effort"], "xhigh");
+    assert_eq!(response["model_source"], "cli-config");
+    assert_eq!(response["effort_source"], "cli-config");
+}
+
+#[test]
+fn runs_list_shows_model_column_and_values() {
+    let dir = temp_dir("runs-list-model");
+    let worker = compile_worker(&dir);
+    let config = write_model_effort_override_codex_config(&dir, &worker, "small");
+
+    let response = run_occ_with_default_timeout(&config, &dir);
+    assert_eq!(response["model"], "profile-model");
+    assert_eq!(response["effort"], "high");
+
+    let runs = run_occ_text(&config, &["runs", "list"]);
+    assert!(runs.contains("MODEL"));
+    assert!(runs.contains("EFFORT"));
+    assert!(runs.contains("profile-model"));
+    assert!(runs.contains("high"));
+}
+
+#[test]
 fn profile_alias_can_select_profile() {
     let dir = temp_dir("profile-alias");
     let worker = compile_worker(&dir);
@@ -1164,7 +2440,7 @@ fn new_config_names_can_select_agent_alias_and_cli_type_alias() {
 }
 
 #[test]
-fn backends_show_accepts_backend_alias() {
+fn clis_show_accepts_cli_alias() {
     let dir = temp_dir("backend-alias-show");
     let worker = compile_worker(&dir);
     let config = write_backend_alias_config(&dir, &worker);
@@ -1172,7 +2448,7 @@ fn backends_show_accepts_backend_alias() {
     let output = Command::new(env!("CARGO_BIN_EXE_occ"))
         .arg("--config")
         .arg(&config)
-        .arg("backends")
+        .arg("clis")
         .arg("show")
         .arg("c")
         .output()

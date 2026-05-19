@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use crate::backend::CommandPlan;
+use crate::config::EnvMode;
 use crate::error::{OccError, OccResult};
 use crate::output;
 use crate::run_record::RunRecord;
@@ -55,6 +56,8 @@ pub struct CommandMetadata<'a> {
     pub args: &'a [String],
     pub cwd: &'a Path,
     pub env_keys: Vec<&'a String>,
+    pub env_mode: EnvMode,
+    pub env_allowlist: &'a [String],
     pub env_removed: &'a [String],
     pub prompt_via_stdin: bool,
     pub prompt_file: Option<&'a PathBuf>,
@@ -62,6 +65,8 @@ pub struct CommandMetadata<'a> {
     pub timeout: Option<&'a str>,
     pub model: Option<&'a str>,
     pub model_source: &'a str,
+    pub effort: Option<&'a str>,
+    pub effort_source: &'a str,
 }
 
 pub fn write_run_files(
@@ -91,6 +96,8 @@ pub fn write_run_files(
         args: &plan.args,
         cwd: &plan.cwd,
         env_keys: plan.env.keys().collect(),
+        env_mode: plan.env_mode,
+        env_allowlist: &plan.env_allowlist,
         env_removed: &plan.env_remove,
         prompt_via_stdin: plan.prompt_stdin.is_some(),
         prompt_file: plan.prompt_file.as_ref(),
@@ -98,6 +105,8 @@ pub fn write_run_files(
         timeout: record.timeout.as_deref(),
         model: record.model.as_deref(),
         model_source: &record.model_source,
+        effort: record.effort.as_deref(),
+        effort_source: &record.effort_source,
     };
     let command_json = serde_json::to_string_pretty(&command_metadata).map_err(|error| {
         OccError::new(
@@ -127,7 +136,7 @@ pub fn result_markdown(record: &RunRecord, stdout: &str, stderr: &str) -> String
         stdout
     };
     format!(
-        "# One Code CLI Run Result\n\n## Summary\n\n{}\n\n## Run\n\n- Run ID: {}\n- Session ID: {}\n- Agent: {}\n- CLI: {}\n- Model: {}\n- Model Source: {}\n- Working Directory: {}\n- Interactive: {}\n- Success: {}\n- Exit Code: {}\n- Started At: {}\n- Finished At: {}\n\n## Prompt\n\nSee `prompt.md`.\n\n## Output\n\n{}\n\n## Logs\n\n- stdout: `stdout.log`\n- stderr: `stderr.log`\n- events: `events.jsonl`\n",
+        "# One Code CLI Run Result\n\n## Summary\n\n{}\n\n## Run\n\n- Run ID: {}\n- Session ID: {}\n- Agent: {}\n- CLI: {}\n- Model: {}\n- Model Source: {}\n- Effort: {}\n- Effort Source: {}\n- Working Directory: {}\n- Interactive: {}\n- Success: {}\n- Exit Code: {}\n- Started At: {}\n- Finished At: {}\n\n## Prompt\n\nSee `prompt.md`.\n\n## Output\n\n{}\n\n## Logs\n\n- stdout: `stdout.log`\n- stderr: `stderr.log`\n- events: `events.jsonl`\n",
         first_non_empty_line(output).unwrap_or("No output."),
         record.run_id,
         record.session_id,
@@ -135,6 +144,8 @@ pub fn result_markdown(record: &RunRecord, stdout: &str, stderr: &str) -> String
         record.backend,
         record.model.as_deref().unwrap_or(""),
         record.model_source,
+        record.effort.as_deref().unwrap_or(""),
+        record.effort_source,
         output::display_path(&record.cwd),
         record.interactive,
         record.success,

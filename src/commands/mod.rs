@@ -14,11 +14,11 @@ use crate::error::{OccError, OccResult};
 
 pub use backends::{backends_list, backends_show};
 pub use config_cmd::{
-    config_export_html, config_html, config_init, config_path, config_show, config_ui,
-    config_validate,
+    config_export_html, config_html, config_init, config_path, config_settings, config_show,
+    config_ui, config_validate,
 };
 pub use doctor::doctor;
-pub use profiles::{profiles_list, profiles_show, profiles_test};
+pub use profiles::{profiles_add, profiles_list, profiles_show, profiles_test};
 pub use runs::{runs_list, runs_open, runs_show};
 pub use sessions::{sessions_latest, sessions_list, sessions_migrate, sessions_show};
 pub use skills_cmd::{skills_doctor, skills_export, skills_install, skills_list, skills_show};

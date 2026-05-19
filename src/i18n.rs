@@ -67,7 +67,7 @@ pub fn t(key: &str) -> &'static str {
                 "doc_root 是 run artifact 目录，result.md、stdout.log、stderr.log 会写到这里。"
             }
             "config.note_profile" => {
-                "agent 决定调用哪个 CLI、默认参数、prompt 传递方式和模型设置。"
+                "agent 决定调用哪个 CLI、默认参数、prompt 传递方式，以及 model / effort 设置。"
             }
             "config.note_backend_defaults" => {
                 "cli_type_defaults 决定 --cli <name> 默认解析到哪个 agent。"
@@ -86,10 +86,10 @@ pub fn t(key: &str) -> &'static str {
             "vibe.help_status" => "显示当前 CLI、模型、会话和上下文状态",
             "vibe.help_profile" => "切换到指定 agent，清除 CLI 选择",
             "vibe.help_backend" => "切换 CLI，自动解析默认 agent",
-            "vibe.help_profile_alias" => "/agent 的兼容别名",
-            "vibe.help_backend_alias" => "/cli 的兼容别名",
             "vibe.help_model_set" => "设置后续消息的模型",
             "vibe.help_model_clear" => "清除模型覆盖",
+            "vibe.help_effort_set" => "设置后续消息的 effort",
+            "vibe.help_effort_clear" => "清除 effort 覆盖",
             "vibe.help_session" => "显示当前会话 ID",
             "vibe.help_clear" => "清除 occ 管理的上下文记录",
             "vibe.help_exit" => "退出",
@@ -101,7 +101,10 @@ pub fn t(key: &str) -> &'static str {
             "dry.title" => "命令计划（dry-run）",
             "dry.profile" => "Agent alias",
             "dry.backend" => "CLI type",
+            "dry.model" => "模型",
             "dry.model_source" => "模型来源",
+            "dry.effort" => "Effort",
+            "dry.effort_source" => "Effort 来源",
             "dry.cwd" => "工作目录",
             "dry.command" => "命令",
             "dry.env_keys" => "环境变量",
@@ -165,7 +168,7 @@ fn t_en(key: &str) -> &'static str {
             "doc_root is the run artifact directory for result.md, stdout.log, and stderr.log."
         }
         "config.note_profile" => {
-            "agent selects the CLI, default args, prompt transport, and model settings."
+            "agent selects the CLI, default args, prompt transport, and model / effort settings."
         }
         "config.note_backend_defaults" => {
             "cli_type_defaults controls how --cli <name> resolves to an agent."
@@ -184,10 +187,10 @@ fn t_en(key: &str) -> &'static str {
         "vibe.help_status" => "show selected CLI, model, session, and transcript state",
         "vibe.help_profile" => "switch to an exact occ agent and clear CLI",
         "vibe.help_backend" => "switch CLI and let occ resolve the default agent",
-        "vibe.help_profile_alias" => "compatibility alias for /agent",
-        "vibe.help_backend_alias" => "compatibility alias for /cli",
         "vibe.help_model_set" => "set model for later messages",
         "vibe.help_model_clear" => "clear model override",
+        "vibe.help_effort_set" => "set effort for later messages",
+        "vibe.help_effort_clear" => "clear effort override",
         "vibe.help_session" => "show current session id",
         "vibe.help_clear" => "clear occ-managed transcript context",
         "vibe.help_exit" => "quit",
@@ -199,7 +202,10 @@ fn t_en(key: &str) -> &'static str {
         "dry.title" => "Command plan (dry-run)",
         "dry.profile" => "Agent",
         "dry.backend" => "CLI",
+        "dry.model" => "Model",
         "dry.model_source" => "Model source",
+        "dry.effort" => "Effort",
+        "dry.effort_source" => "Effort source",
         "dry.cwd" => "Working dir",
         "dry.command" => "Command",
         "dry.env_keys" => "Env vars",

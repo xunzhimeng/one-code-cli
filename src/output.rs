@@ -24,6 +24,8 @@ pub struct RunResponse {
     pub backend: String,
     pub model: Option<String>,
     pub model_source: String,
+    pub effort: Option<String>,
+    pub effort_source: String,
     #[serde(serialize_with = "serialize_display_path")]
     pub cwd: PathBuf,
     #[serde(serialize_with = "serialize_display_path")]
@@ -33,6 +35,22 @@ pub struct RunResponse {
     pub exit_code: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<ErrorBody>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BatchRunError {
+    pub agent: String,
+    pub code: String,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BatchResponse {
+    pub success: bool,
+    pub batch_id: String,
+    pub runs: Vec<RunResponse>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<BatchRunError>,
 }
 
 pub fn display_text(value: &str) -> String {
@@ -74,6 +92,10 @@ pub fn print_run_response(mode: OutputMode, response: &RunResponse) -> OccResult
             if let Some(model) = &response.model {
                 println!("{} {}", "model:".bold(), model);
             }
+            println!("{} {}", "effort_source:".bold(), response.effort_source);
+            if let Some(effort) = &response.effort {
+                println!("{} {}", "effort:".bold(), effort);
+            }
             println!("{} {}", "cwd:".bold(), display_path(&response.cwd).dimmed());
             println!(
                 "{} {}",
@@ -102,6 +124,57 @@ pub fn print_run_response(mode: OutputMode, response: &RunResponse) -> OccResult
             println!("{}", display_text(&text));
         }
         OutputMode::Path => println!("{}", display_path(&response.result_path)),
+    }
+    Ok(())
+}
+
+pub fn print_batch_response(mode: OutputMode, response: &BatchResponse) -> OccResult<()> {
+    match mode {
+        OutputMode::Json => {
+            let text = serde_json::to_string_pretty(response).map_err(|error| {
+                OccError::new(
+                    "serialization_failed",
+                    format!("Failed to serialize batch JSON output: {}", error),
+                )
+            })?;
+            println!("{}", display_text(&text));
+        }
+        OutputMode::Path => {
+            for run in &response.runs {
+                println!("{}\t{}", run.profile, display_path(&run.result_path));
+            }
+        }
+        OutputMode::Text => {
+            println!(
+                "{} {}",
+                "success:".bold(),
+                if response.success {
+                    response.success.to_string().green().to_string()
+                } else {
+                    response.success.to_string().red().to_string()
+                }
+            );
+            println!("{} {}", "batch_id:".bold(), response.batch_id);
+            let mut table = Table::new(&["AGENT", "CLI", "SUCCESS", "RUN_ID", "RESULT"]);
+            for run in &response.runs {
+                table.add_row(vec![
+                    run.profile.clone(),
+                    run.backend.clone(),
+                    run.success.to_string(),
+                    run.run_id.clone(),
+                    display_path(&run.result_path),
+                ]);
+            }
+            table.print();
+            for error in &response.errors {
+                eprintln!(
+                    "{} {}: {}",
+                    format!("{}:", error.agent).red().bold(),
+                    error.code,
+                    display_text(&error.message)
+                );
+            }
+        }
     }
     Ok(())
 }

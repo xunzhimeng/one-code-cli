@@ -13,12 +13,13 @@ use crate::output;
 pub struct SessionRecord {
     pub session_id: String,
     pub backend_session_id: Option<String>,
-    #[serde(rename = "agent", alias = "profile", alias = "agent_alias")]
+    #[serde(rename = "agent")]
     pub profile: String,
-    #[serde(rename = "cli", alias = "backend", alias = "cli_type")]
+    #[serde(rename = "cli")]
     pub backend: String,
     pub cwd: PathBuf,
     pub model: Option<String>,
+    pub effort: Option<String>,
     pub latest_run_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -27,9 +28,9 @@ pub struct SessionRecord {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionIndexEntry {
     pub session_id: String,
-    #[serde(rename = "agent", alias = "profile", alias = "agent_alias")]
+    #[serde(rename = "agent")]
     pub profile: String,
-    #[serde(rename = "cli", alias = "backend", alias = "cli_type")]
+    #[serde(rename = "cli")]
     pub backend: String,
     pub cwd: PathBuf,
     #[serde(default)]
@@ -44,6 +45,7 @@ struct SessionRow {
     backend: String,
     cwd: String,
     model: Option<String>,
+    effort: Option<String>,
     latest_run_id: Option<String>,
     created_at: String,
     updated_at: String,
@@ -64,6 +66,7 @@ impl SessionRecord {
         backend: String,
         cwd: PathBuf,
         model: Option<String>,
+        effort: Option<String>,
         now: DateTime<Utc>,
     ) -> Self {
         Self {
@@ -73,6 +76,7 @@ impl SessionRecord {
             backend,
             cwd,
             model,
+            effort,
             latest_run_id: None,
             created_at: now,
             updated_at: now,
@@ -89,6 +93,7 @@ impl SessionRow {
             backend: self.backend,
             cwd: PathBuf::from(self.cwd),
             model: self.model,
+            effort: self.effort,
             latest_run_id: self.latest_run_id,
             created_at: parse_time(&self.created_at, "created_at")?,
             updated_at: parse_time(&self.updated_at, "updated_at")?,
@@ -124,10 +129,11 @@ pub fn save(session: &SessionRecord) -> OccResult<()> {
             cwd,
             cwd_key,
             model,
+            effort,
             latest_run_id,
             created_at,
             updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
         ON CONFLICT(session_id) DO UPDATE SET
             backend_session_id = excluded.backend_session_id,
             profile = excluded.profile,
@@ -135,6 +141,7 @@ pub fn save(session: &SessionRecord) -> OccResult<()> {
             cwd = excluded.cwd,
             cwd_key = excluded.cwd_key,
             model = excluded.model,
+            effort = excluded.effort,
             latest_run_id = excluded.latest_run_id,
             created_at = excluded.created_at,
             updated_at = excluded.updated_at"#,
@@ -146,6 +153,7 @@ pub fn save(session: &SessionRecord) -> OccResult<()> {
             &cwd,
             &cwd_key,
             session.model.as_deref(),
+            session.effort.as_deref(),
             session.latest_run_id.as_deref(),
             &created_at,
             &updated_at,
@@ -291,6 +299,7 @@ fn init_db(conn: &Connection) -> OccResult<()> {
             cwd TEXT NOT NULL,
             cwd_key TEXT NOT NULL,
             model TEXT,
+            effort TEXT,
             latest_run_id TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
@@ -308,7 +317,9 @@ fn init_db(conn: &Connection) -> OccResult<()> {
         CREATE INDEX IF NOT EXISTS idx_session_runs_session_created
             ON session_runs(session_id, created_at);"#,
     )
-    .map_err(|error| sqlite_error("Failed to initialize session store", error))
+    .map_err(|error| sqlite_error("Failed to initialize session store", error))?;
+    let _ = conn.execute("ALTER TABLE sessions ADD COLUMN effort TEXT", []);
+    Ok(())
 }
 
 fn load_from_db(session_id: &str) -> OccResult<Option<SessionRecord>> {
@@ -322,6 +333,7 @@ fn load_from_db(session_id: &str) -> OccResult<Option<SessionRecord>> {
                 backend,
                 cwd,
                 model,
+                effort,
                 latest_run_id,
                 created_at,
                 updated_at
@@ -385,9 +397,10 @@ fn read_session_row(row: &Row<'_>) -> rusqlite::Result<SessionRow> {
         backend: row.get(3)?,
         cwd: row.get(4)?,
         model: row.get(5)?,
-        latest_run_id: row.get(6)?,
-        created_at: row.get(7)?,
-        updated_at: row.get(8)?,
+        effort: row.get(6)?,
+        latest_run_id: row.get(7)?,
+        created_at: row.get(8)?,
+        updated_at: row.get(9)?,
     })
 }
 
@@ -545,6 +558,7 @@ pub fn migrate_legacy(doc_root: &Path) -> OccResult<usize> {
             backend: entry.backend.clone(),
             cwd: entry.cwd.clone(),
             model: None,
+            effort: None,
             latest_run_id: None,
             created_at: entry.updated_at,
             updated_at: entry.updated_at,

@@ -169,8 +169,8 @@ impl VibeCompletion {
             .unwrap_or(0);
         let query = &prefix[start..];
         let values = match command {
-            "/agent" | "/agent-alias" | "/target" | "/profile" => &self.profiles,
-            "/cli-type" | "/cli" | "/backend" => &self.backends,
+            "/agent" => &self.profiles,
+            "/cli" => &self.backends,
             _ => return (pos, Vec::new()),
         };
         let pairs = fuzzy_values(query, values)
@@ -206,8 +206,8 @@ impl VibeCompletion {
             return None;
         }
         let values = match command {
-            "/agent" | "/agent-alias" | "/target" | "/profile" => &self.profiles,
-            "/cli-type" | "/cli" | "/backend" => &self.backends,
+            "/agent" => &self.profiles,
+            "/cli" => &self.backends,
             _ => return None,
         };
         values
@@ -258,19 +258,7 @@ fn command_pairs(query: &str) -> Vec<Pair> {
 
 fn command_names() -> Vec<String> {
     [
-        "/help",
-        "/status",
-        "/agent",
-        "/agent-alias",
-        "/target",
-        "/profile",
-        "/cli",
-        "/cli-type",
-        "/backend",
-        "/model",
-        "/session",
-        "/clear",
-        "/exit",
+        "/help", "/status", "/agent", "/cli", "/model", "/effort", "/session", "/clear", "/exit",
         "/quit",
     ]
     .into_iter()
@@ -280,11 +268,10 @@ fn command_names() -> Vec<String> {
 
 fn command_display(name: &str) -> String {
     let detail = match name {
-        "/agent" | "/agent-alias" => "select configured agent",
-        "/target" | "/profile" => "legacy alias for /agent",
-        "/cli" | "/cli-type" => "select coding CLI",
-        "/backend" => "legacy alias for /cli",
+        "/agent" => "select configured agent",
+        "/cli" => "select coding CLI",
         "/model" => "set or clear model",
+        "/effort" => "set or clear effort",
         "/status" => "show state",
         "/session" => "show session id",
         "/clear" => "clear transcript",
@@ -343,6 +330,7 @@ struct VibeState {
     profile: Option<String>,
     backend: Option<String>,
     model: Option<String>,
+    effort: Option<String>,
     transcript: Vec<VibeMessage>,
 }
 
@@ -353,6 +341,7 @@ impl VibeState {
             profile: args.profile.clone(),
             backend: args.backend.clone(),
             model: args.model.clone(),
+            effort: args.effort.clone(),
             transcript: Vec::new(),
         }
     }
@@ -418,6 +407,9 @@ fn print_banner(args: &VibeArgs, state: &VibeState) -> OccResult<()> {
     if let Some(model) = &state.model {
         println!("  {} {}", "model:".dimmed(), model.cyan());
     }
+    if let Some(effort) = &state.effort {
+        println!("  {} {}", "effort:".dimmed(), effort.cyan());
+    }
     if let Some(cwd) = &args.cwd {
         println!(
             "  {} {}",
@@ -462,26 +454,6 @@ fn handle_command(message: &str, state: &mut VibeState) -> OccResult<bool> {
             );
             println!(
                 "  {} {}",
-                "/profile <name>".cyan(),
-                t("vibe.help_profile_alias").dimmed()
-            );
-            println!(
-                "  {}  {}",
-                "/target <name>".cyan(),
-                t("vibe.help_profile_alias").dimmed()
-            );
-            println!(
-                "  {} {}",
-                "/backend <name>".cyan(),
-                t("vibe.help_backend_alias").dimmed()
-            );
-            println!(
-                "  {}     {}",
-                "/cli <name>".cyan(),
-                t("vibe.help_backend_alias").dimmed()
-            );
-            println!(
-                "  {} {}",
                 "/model <name>".cyan(),
                 t("vibe.help_model_set").dimmed()
             );
@@ -489,6 +461,16 @@ fn handle_command(message: &str, state: &mut VibeState) -> OccResult<bool> {
                 "  {}  {}",
                 "/model".cyan(),
                 t("vibe.help_model_clear").dimmed()
+            );
+            println!(
+                "  {} {}",
+                "/effort <level>".cyan(),
+                t("vibe.help_effort_set").dimmed()
+            );
+            println!(
+                "  {} {}",
+                "/effort".cyan(),
+                t("vibe.help_effort_clear").dimmed()
             );
             println!(
                 "  {} {}",
@@ -503,7 +485,7 @@ fn handle_command(message: &str, state: &mut VibeState) -> OccResult<bool> {
             print_status(state);
             Ok(true)
         }
-        "/agent" | "/agent-alias" | "/target" | "/profile" => {
+        "/agent" => {
             let Some(profile) = parts.next() else {
                 println!("{}: /agent <name>", "usage".dimmed());
                 return Ok(true);
@@ -519,7 +501,7 @@ fn handle_command(message: &str, state: &mut VibeState) -> OccResult<bool> {
             );
             Ok(true)
         }
-        "/cli" | "/cli-type" | "/backend" => {
+        "/cli" => {
             let Some(backend) = parts.next() else {
                 println!("{}: /cli <name>", "usage".dimmed());
                 return Ok(true);
@@ -544,6 +526,20 @@ fn handle_command(message: &str, state: &mut VibeState) -> OccResult<bool> {
                 println!(
                     "  {} {}",
                     "model:".dimmed(),
+                    i18n::t("vibe.backend_cleared").dimmed()
+                );
+            }
+            Ok(true)
+        }
+        "/effort" => {
+            if let Some(effort) = parts.next() {
+                state.effort = Some(effort.to_string());
+                println!("  {} {}", "effort:".dimmed(), effort.cyan());
+            } else {
+                state.effort = None;
+                println!(
+                    "  {} {}",
+                    "effort:".dimmed(),
                     i18n::t("vibe.backend_cleared").dimmed()
                 );
             }
@@ -585,6 +581,11 @@ fn print_status(state: &VibeState) {
     );
     println!(
         "  {} {}",
+        "effort:".dimmed(),
+        state.effort.as_deref().unwrap_or("-").cyan()
+    );
+    println!(
+        "  {} {}",
         "session:".dimmed(),
         state.session_id.as_deref().unwrap_or("-")
     );
@@ -604,6 +605,7 @@ fn send_message(
             profile: state.profile.clone(),
             backend: state.backend.clone(),
             model: state.model.clone(),
+            effort: state.effort.clone(),
             cwd: args.cwd.clone(),
             prompt: Some(prompt),
             prompt_file: None,
@@ -615,6 +617,7 @@ fn send_message(
             dry_run: args.dry_run,
             child_args: args.child_args.clone(),
         },
+        agents: Vec::new(),
         stream: false,
         interactive: false,
         non_interactive: true,
@@ -721,6 +724,26 @@ fn render_assistant_message(execution: &runner::RunExecution, message: &str) {
         }
     );
     println!("  {} {}", "session:".bold(), execution.body.session_id);
+    println!(
+        "  {} {}",
+        "model:".bold(),
+        execution.body.model.as_deref().unwrap_or("-")
+    );
+    println!(
+        "  {} {}",
+        "model_source:".bold(),
+        execution.body.model_source
+    );
+    println!(
+        "  {} {}",
+        "effort:".bold(),
+        execution.body.effort.as_deref().unwrap_or("-")
+    );
+    println!(
+        "  {} {}",
+        "effort_source:".bold(),
+        execution.body.effort_source
+    );
     println!(
         "  {} {}",
         "result:".bold(),

@@ -34,7 +34,9 @@ impl Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
-    #[command(about = "Run one delegated task / 运行一次委派任务")]
+    #[command(
+        about = "Run one delegated task, or fan out to multiple agents / 运行一次委派任务，或并行调用多个 agent"
+    )]
     Run(RunArgs),
     #[command(alias = "chat")]
     #[command(about = "Chat with a selected coding CLI / 与指定 CLI 连续对话")]
@@ -43,15 +45,10 @@ pub enum Commands {
         about = "Check configuration, paths, agent aliases, and executables / 检查配置、路径、agent alias 和可执行文件"
     )]
     Doctor,
-    #[command(
-        name = "agents",
-        alias = "agent-aliases",
-        alias = "targets",
-        alias = "profiles"
-    )]
+    #[command(name = "agents")]
     #[command(about = "List, show, and test agents / 查看、展示和测试 agent")]
     Profiles(ProfilesArgs),
-    #[command(name = "clis", alias = "cli-types", alias = "backends")]
+    #[command(name = "clis")]
     #[command(about = "List and inspect supported CLIs / 查看支持的 CLI")]
     Backends(BackendsArgs),
     #[command(about = "Manage and explain occ configuration / 管理并解释 occ 配置")]
@@ -62,6 +59,8 @@ pub enum Commands {
     Runs(RunsArgs),
     #[command(about = "Install and inspect bundled skills / 安装和查看内置 skills")]
     Skills(SkillsArgs),
+    #[command(about = "Open interactive config settings / 打开可视化配置设置")]
+    Settings(SettingsArgs),
 }
 
 /// Shared arguments between `run` and `vibe` subcommands.
@@ -69,9 +68,7 @@ pub enum Commands {
 pub struct CommonArgs {
     #[arg(
         long = "agent",
-        alias = "agent-alias",
-        alias = "target",
-        alias = "profile",
+        value_name = "AGENT",
         help = "Select an exact occ agent by name"
     )]
     pub profile: Option<String>,
@@ -79,14 +76,21 @@ pub struct CommonArgs {
     #[arg(
         short = 'b',
         long = "cli",
-        alias = "cli-type",
-        alias = "backend",
+        value_name = "CLI",
         help = "Select a CLI (claude, codex, opencode, gemini)"
     )]
     pub backend: Option<String>,
 
     #[arg(short = 'm', long, help = "Override the model for this run")]
     pub model: Option<String>,
+
+    #[arg(
+        short = 'e',
+        long,
+        alias = "reasoning-effort",
+        help = "Override reasoning effort for this run"
+    )]
+    pub effort: Option<String>,
 
     #[arg(short = 'C', long, help = "Working directory for the child process")]
     pub cwd: Option<PathBuf>,
@@ -130,6 +134,15 @@ pub struct CommonArgs {
 pub struct RunArgs {
     #[command(flatten)]
     pub common: CommonArgs,
+
+    #[arg(
+        long = "agents",
+        value_delimiter = ',',
+        conflicts_with = "profile",
+        value_name = "AGENT[,AGENT]",
+        help = "Run the same prompt against multiple occ agents in parallel"
+    )]
+    pub agents: Vec<String>,
 
     #[arg(short = 'i', long, help = "Force foreground interactive mode")]
     pub interactive: bool,
@@ -193,6 +206,78 @@ pub enum ProfilesCommand {
     Show { name: String },
     #[command(about = "Render an agent command plan / 测试 agent 的命令计划")]
     Test { name: String },
+    #[command(about = "Add one configured agent / 新增一个 agent 配置")]
+    Add(Box<ProfileAddArgs>),
+}
+
+#[derive(Debug, Args)]
+pub struct ProfileAddArgs {
+    pub name: String,
+
+    #[arg(long = "cli", value_name = "CLI", help = "CLI type for this agent")]
+    pub backend: String,
+
+    #[arg(long, value_delimiter = ',', help = "Comma-separated agent aliases")]
+    pub aliases: Vec<String>,
+
+    #[arg(long, help = "Command name, e.g. claude")]
+    pub command: Option<String>,
+
+    #[arg(long, help = "Executable path overriding command")]
+    pub path: Option<PathBuf>,
+
+    #[arg(long, help = "Agent model")]
+    pub model: Option<String>,
+
+    #[arg(long, alias = "reasoning-effort", help = "Agent reasoning effort")]
+    pub effort: Option<String>,
+
+    #[arg(
+        long,
+        value_name = "DIR",
+        help = "Per-agent CLI system config directory"
+    )]
+    pub config_dir: Option<PathBuf>,
+
+    #[arg(
+        long,
+        help = "Explicitly use strict isolated env (default for new agents)"
+    )]
+    pub strict_env: bool,
+
+    #[arg(
+        long,
+        conflicts_with = "strict_env",
+        help = "Use the default inherited CLI environment instead of isolated strict env"
+    )]
+    pub inherit_env: bool,
+
+    #[arg(
+        long = "env-allow",
+        value_name = "KEY",
+        value_delimiter = ',',
+        help = "Parent environment variable allowed in strict isolated env mode"
+    )]
+    pub env_allow: Vec<String>,
+
+    #[arg(
+        long,
+        value_name = "KEY=VALUE",
+        help = "Agent-specific environment variable"
+    )]
+    pub env: Vec<String>,
+
+    #[arg(long, conflicts_with = "project", help = "Write to ~/.occ/config.toml")]
+    pub user: bool,
+
+    #[arg(long, conflicts_with = "user", help = "Write to .occ/config.toml")]
+    pub project: bool,
+
+    #[arg(long, help = "Set this agent as default_agent")]
+    pub set_default: bool,
+
+    #[arg(long, help = "Set this agent as the default for its CLI type")]
+    pub set_cli_default: bool,
 }
 
 #[derive(Debug, Args)]
@@ -339,6 +424,14 @@ pub struct SessionResumeArgs {
     #[arg(short = 'm', long, help = "Override model")]
     pub model: Option<String>,
 
+    #[arg(
+        short = 'e',
+        long,
+        alias = "reasoning-effort",
+        help = "Override reasoning effort"
+    )]
+    pub effort: Option<String>,
+
     #[arg(long, help = "Override the run artifact directory")]
     pub doc_root: Option<PathBuf>,
 
@@ -357,21 +450,10 @@ pub struct SessionResumeArgs {
 
 #[derive(Debug, Args)]
 pub struct SessionLatestArgs {
-    #[arg(
-        long = "agent",
-        alias = "agent-alias",
-        alias = "target",
-        alias = "profile",
-        help = "Filter by agent"
-    )]
+    #[arg(long = "agent", value_name = "AGENT", help = "Filter by agent")]
     pub profile: Option<String>,
 
-    #[arg(
-        long = "cli",
-        alias = "cli-type",
-        alias = "backend",
-        help = "Filter by CLI"
-    )]
+    #[arg(long = "cli", value_name = "CLI", help = "Filter by CLI")]
     pub backend: Option<String>,
 
     #[arg(long, help = "Filter by working directory")]
@@ -423,8 +505,11 @@ pub enum SkillsCommand {
     },
     #[command(about = "Install all bundled skills / 安装所有内置 skills")]
     Install {
-        #[arg(long, help = "Target directory for installed skills")]
-        target: PathBuf,
+        #[arg(
+            long,
+            help = "Target directory for installed skills (defaults to ~/.agents/skills)"
+        )]
+        target: Option<PathBuf>,
     },
     #[command(about = "Check installed skills / 检查已安装 skills")]
     Doctor {
@@ -434,4 +519,25 @@ pub enum SkillsCommand {
         )]
         target: Option<PathBuf>,
     },
+}
+
+#[derive(Debug, Args, Clone)]
+pub struct SettingsArgs {
+    #[arg(long, value_enum, default_value_t = ConfigTarget::User, help = "Config target: user, project, or loaded")]
+    pub target: ConfigTarget,
+
+    #[arg(long, help = "Use local server mode instead of static HTML mode")]
+    pub server: bool,
+
+    #[arg(long, help = "Bind port for server mode", value_name = "PORT")]
+    pub port: Option<u16>,
+
+    #[arg(
+        long,
+        help = "Output path for static HTML export (not used with --server)"
+    )]
+    pub output: Option<PathBuf>,
+
+    #[arg(long, help = "Do not open the browser automatically")]
+    pub no_open: bool,
 }

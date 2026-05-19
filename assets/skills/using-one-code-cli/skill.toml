@@ -11,6 +11,8 @@ prompt = "Task prompt text. Prefer --prompt for short text or --stdin for longer
 prompt_file = "Optional prompt file for file-based, reusable, or explicitly file-required tasks."
 agent = "Optional exact One Code CLI agent."
 cli = "Optional CLI type: claude, codex, opencode, gemini."
+model = "Optional model override for the delegated run."
+effort = "Optional reasoning effort override for the delegated run."
 session = "Optional One Code CLI session id for resume."
 
 [outputs]
@@ -18,4 +20,8 @@ run_id = "One Code CLI run id."
 session_id = "One Code CLI session id."
 result_path = "Path to result.md."
 metadata_path = "Path to run.toml."
+model = "Resolved model used for the run when available."
+model_source = "Where the resolved model came from."
+effort = "Resolved reasoning effort used for the run when available."
+effort_source = "Where the resolved effort came from."
 exit_code = "Child CLI exit code when available."

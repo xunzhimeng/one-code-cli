@@ -11,12 +11,14 @@ use crate::output;
 pub struct RunRecord {
     pub run_id: String,
     pub session_id: String,
-    #[serde(rename = "agent", alias = "profile", alias = "agent_alias")]
+    #[serde(rename = "agent")]
     pub profile: String,
-    #[serde(rename = "cli", alias = "backend", alias = "cli_type")]
+    #[serde(rename = "cli")]
     pub backend: String,
     pub model: Option<String>,
     pub model_source: String,
+    pub effort: Option<String>,
+    pub effort_source: String,
     pub cwd: PathBuf,
     pub prompt_source: String,
     pub interactive: bool,
@@ -33,10 +35,14 @@ pub struct RunRecord {
 pub struct RunIndexEntry {
     pub run_id: String,
     pub session_id: String,
-    #[serde(rename = "agent", alias = "profile", alias = "agent_alias")]
+    #[serde(rename = "agent")]
     pub profile: String,
-    #[serde(rename = "cli", alias = "backend", alias = "cli_type")]
+    #[serde(rename = "cli")]
     pub backend: String,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub effort: Option<String>,
     pub cwd: PathBuf,
     pub success: bool,
     pub result_path: PathBuf,
@@ -51,6 +57,8 @@ impl From<&RunRecord> for RunIndexEntry {
             session_id: record.session_id.clone(),
             profile: record.profile.clone(),
             backend: record.backend.clone(),
+            model: record.model.clone(),
+            effort: record.effort.clone(),
             cwd: record.cwd.clone(),
             success: record.success,
             result_path: record.result_path.clone(),

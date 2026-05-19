@@ -39,8 +39,26 @@ pub fn skills_export(name: &str, target: &Path) -> OccResult<()> {
     Ok(())
 }
 
-pub fn skills_install(target: &Path) -> OccResult<()> {
-    for path in skills::install(target)? {
+fn default_skills_target() -> OccResult<PathBuf> {
+    if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
+        return Ok(PathBuf::from(home).join(".agents").join("skills"));
+    }
+    directories::BaseDirs::new()
+        .map(|base_dirs| base_dirs.home_dir().join(".agents").join("skills"))
+        .ok_or_else(|| {
+            OccError::new(
+                "home_not_found",
+                "Unable to locate the user home directory.",
+            )
+        })
+}
+
+pub fn skills_install(target: Option<PathBuf>) -> OccResult<()> {
+    let target = match target {
+        Some(path) => path,
+        None => default_skills_target()?,
+    };
+    for path in skills::install(&target)? {
         println!("installed: {}", output::display_path(&path));
     }
     Ok(())
@@ -49,14 +67,7 @@ pub fn skills_install(target: &Path) -> OccResult<()> {
 pub fn skills_doctor(target: Option<PathBuf>) -> OccResult<()> {
     let target = match target {
         Some(path) => path,
-        None => directories::BaseDirs::new()
-            .map(|base_dirs| base_dirs.home_dir().join(".agents").join("skills"))
-            .ok_or_else(|| {
-                OccError::new(
-                    "home_not_found",
-                    "Unable to locate the user home directory.",
-                )
-            })?,
+        None => default_skills_target()?,
     };
     let mut output = String::new();
     for line in skills::doctor(&target)? {

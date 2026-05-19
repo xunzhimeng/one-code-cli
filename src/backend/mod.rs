@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use crate::config::{ArgsStrategy, Profile, PromptVia};
+use crate::config::{ArgsStrategy, EnvMode, Profile, PromptVia};
 use crate::error::{OccError, OccResult};
 
 #[derive(Debug, Clone, Serialize)]
@@ -12,16 +12,20 @@ pub struct BackendSpec {
     pub default_command: &'static str,
     pub builtin_profile: &'static str,
     pub supports_model: bool,
+    pub supports_effort: bool,
     pub supports_interactive: bool,
     pub supports_non_interactive: bool,
     pub supports_resume: bool,
     pub default_prompt_via: PromptVia,
     pub prompt_transports: &'static [PromptVia],
+    pub prompt_arg: Option<&'static str>,
     pub file_indirection_template: Option<&'static str>,
     pub non_interactive_args: &'static [&'static str],
     pub interactive_args: &'static [&'static str],
+    pub session_id_args: &'static [&'static str],
     pub resume_args: &'static [&'static str],
     pub model_args: &'static [&'static str],
+    pub effort_args: &'static [&'static str],
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -31,6 +35,7 @@ pub struct TemplateContext {
     #[serde(rename = "cli")]
     pub backend: String,
     pub model: Option<String>,
+    pub effort: Option<String>,
     pub cwd: PathBuf,
     pub prompt: Option<String>,
     pub prompt_file: Option<PathBuf>,
@@ -48,6 +53,8 @@ pub struct CommandPlan {
     pub args: Vec<String>,
     pub cwd: PathBuf,
     pub env: BTreeMap<String, String>,
+    pub env_mode: EnvMode,
+    pub env_allowlist: Vec<String>,
     pub env_remove: Vec<String>,
     pub prompt_stdin: Option<String>,
     pub prompt_file: Option<PathBuf>,
@@ -91,6 +98,10 @@ pub fn build_command_plan(
     let prompt_transport = select_prompt_transport(profile, backend, context)?;
     let transport_prompt_file = prompt_file_for_transport(context, prompt_transport)?;
     let mut transport_context = context.clone();
+    transport_context.config_dir = context
+        .config_dir
+        .as_ref()
+        .map(|path| resolve_config_dir(&context.cwd, path));
     if matches!(
         prompt_transport,
         PromptVia::File | PromptVia::FileIndirection
@@ -120,10 +131,17 @@ pub fn build_command_plan(
             args
         }
         ArgsStrategy::Override => {
-            if resume {
-                ensure_backend_session_id_for_resume(profile, &transport_context, &profile.args)?;
+            let mut args = render_list(&profile.args, &transport_context);
+            if !resume {
+                append_session_id_args(&mut args, backend, &transport_context);
             }
-            render_list(&profile.args, &transport_context)
+            if resume {
+                let resume_args = selected_resume_args(profile, backend);
+                ensure_backend_session_id_for_resume(profile, &transport_context, &resume_args)?;
+                args.extend(render_list(&resume_args, &transport_context));
+            }
+            append_model_and_effort_args(&mut args, backend, &transport_context)?;
+            args
         }
     };
 
@@ -135,6 +153,7 @@ pub fn build_command_plan(
     };
 
     let mut env = BTreeMap::new();
+    apply_config_dir_isolation_env(backend, &transport_context, &mut env);
     for (key, value) in &profile.env {
         env.insert(key.clone(), render(value, &transport_context));
     }
@@ -144,6 +163,8 @@ pub fn build_command_plan(
         args,
         cwd: context.cwd.clone(),
         env,
+        env_mode: profile.env_mode,
+        env_allowlist: profile.env_allowlist.clone(),
         env_remove: Vec::new(),
         prompt_stdin,
         prompt_file: transport_prompt_file,
@@ -158,11 +179,11 @@ pub fn render_list(values: &[String], context: &TemplateContext) -> Vec<String> 
 pub fn render(value: &str, context: &TemplateContext) -> String {
     let mut rendered = value.to_string();
     let replacements = [
-        ("{agent_alias}", context.profile.as_str()),
+        ("{agent}", context.profile.as_str()),
+        ("{cli}", context.backend.as_str()),
         ("{cli_type}", context.backend.as_str()),
-        ("{profile}", context.profile.as_str()),
-        ("{backend}", context.backend.as_str()),
         ("{model}", context.model.as_deref().unwrap_or("")),
+        ("{effort}", context.effort.as_deref().unwrap_or("")),
         ("{cwd}", &path_to_string(&context.cwd)),
         ("{prompt}", context.prompt.as_deref().unwrap_or("")),
         (
@@ -249,26 +270,14 @@ fn builtin_args(
     args.extend(mode_args);
 
     if resume {
-        let resume_args = if profile.resume_args.is_empty() {
-            backend
-                .resume_args
-                .iter()
-                .map(|value| (*value).to_string())
-                .collect()
-        } else {
-            profile.resume_args.clone()
-        };
+        let resume_args = selected_resume_args(profile, backend);
         ensure_backend_session_id_for_resume(profile, context, &resume_args)?;
         args.extend(render_list(&resume_args, context));
+    } else {
+        append_session_id_args(&mut args, backend, context);
     }
 
-    if let Some(model) = &context.model {
-        if backend.supports_model {
-            for arg in backend.model_args {
-                args.push(arg.replace("{model}", model));
-            }
-        }
-    }
+    append_model_and_effort_args(&mut args, backend, context)?;
 
     match prompt_transport {
         PromptVia::Arg => {
@@ -283,6 +292,9 @@ fn builtin_args(
                             prompt.len(),
                             os_limit
                         );
+                        if let Some(prompt_arg) = backend.prompt_arg {
+                            args.push(prompt_arg.to_string());
+                        }
                         args.push(render(template, context));
                     } else {
                         return Err(OccError::new(
@@ -297,12 +309,18 @@ fn builtin_args(
                         ));
                     }
                 } else {
+                    if let Some(prompt_arg) = backend.prompt_arg {
+                        args.push(prompt_arg.to_string());
+                    }
                     args.push(prompt.clone());
                 }
             }
         }
         PromptVia::File => {
             if let Some(prompt_file) = &context.prompt_file {
+                if let Some(prompt_arg) = backend.prompt_arg {
+                    args.push(prompt_arg.to_string());
+                }
                 args.push(path_to_string(prompt_file));
             }
         }
@@ -317,6 +335,9 @@ fn builtin_args(
                         ),
                     )
                 })?;
+                if let Some(prompt_arg) = backend.prompt_arg {
+                    args.push(prompt_arg.to_string());
+                }
                 args.push(render(template, context));
             }
         }
@@ -325,6 +346,57 @@ fn builtin_args(
     }
 
     Ok(args)
+}
+
+fn selected_resume_args(profile: &Profile, backend: &BackendSpec) -> Vec<String> {
+    if profile.resume_args.is_empty() {
+        backend
+            .resume_args
+            .iter()
+            .map(|value| (*value).to_string())
+            .collect()
+    } else {
+        profile.resume_args.clone()
+    }
+}
+
+fn append_session_id_args(
+    args: &mut Vec<String>,
+    backend: &BackendSpec,
+    context: &TemplateContext,
+) {
+    if context.backend_session_id.is_none() {
+        return;
+    }
+    for arg in backend.session_id_args {
+        args.push(render(arg, context));
+    }
+}
+
+fn append_model_and_effort_args(
+    args: &mut Vec<String>,
+    backend: &BackendSpec,
+    context: &TemplateContext,
+) -> OccResult<()> {
+    if context.model.is_some() && backend.supports_model {
+        for arg in backend.model_args {
+            args.push(render(arg, context));
+        }
+    }
+
+    if context.effort.is_some() {
+        if !backend.supports_effort {
+            return Err(OccError::new(
+                "effort_unsupported",
+                format!("CLI '{}' does not support effort override.", backend.name),
+            ));
+        }
+        for arg in backend.effort_args {
+            args.push(render(arg, context));
+        }
+    }
+
+    Ok(())
 }
 
 fn select_prompt_transport(
@@ -455,6 +527,66 @@ fn ensure_backend_session_id_for_resume(
     Ok(())
 }
 
+pub fn resolve_config_dir(cwd: &Path, config_dir: &Path) -> PathBuf {
+    if config_dir.is_absolute() {
+        config_dir.to_path_buf()
+    } else {
+        cwd.join(config_dir)
+    }
+}
+
+fn apply_config_dir_isolation_env(
+    backend: &BackendSpec,
+    context: &TemplateContext,
+    env: &mut BTreeMap<String, String>,
+) {
+    let Some(config_dir) = context.config_dir.as_ref() else {
+        return;
+    };
+
+    match backend.name {
+        "claude" => insert_env_path(env, "CLAUDE_CONFIG_DIR", config_dir),
+        "codex" => insert_env_path(env, "CODEX_HOME", config_dir),
+        "opencode" => insert_env_path(env, "OPENCODE_CONFIG_DIR", config_dir),
+        "gemini" => apply_gemini_config_dir_env(env, config_dir),
+        _ => {}
+    }
+}
+
+fn apply_gemini_config_dir_env(env: &mut BTreeMap<String, String>, config_dir: &Path) {
+    insert_env_path(env, "HOME", config_dir);
+
+    #[cfg(windows)]
+    {
+        insert_env_path(env, "USERPROFILE", config_dir);
+        insert_env_path(env, "APPDATA", &config_dir.join("AppData").join("Roaming"));
+        insert_env_path(
+            env,
+            "LOCALAPPDATA",
+            &config_dir.join("AppData").join("Local"),
+        );
+        if let Some((drive, path)) = windows_home_drive_path(config_dir) {
+            env.insert("HOMEDRIVE".to_string(), drive);
+            env.insert("HOMEPATH".to_string(), path);
+        }
+    }
+}
+
+#[cfg(windows)]
+fn windows_home_drive_path(path: &Path) -> Option<(String, String)> {
+    let text = path.to_string_lossy();
+    let bytes = text.as_bytes();
+    if bytes.len() >= 3 && bytes[1] == b':' {
+        Some((text[..2].to_string(), text[2..].to_string()))
+    } else {
+        None
+    }
+}
+
+fn insert_env_path(env: &mut BTreeMap<String, String>, key: &str, path: &Path) {
+    env.insert(key.to_string(), path_to_string(path));
+}
+
 fn path_to_string(path: &Path) -> String {
     let text = path.to_string_lossy();
     let text = if let Some(path) = text.strip_prefix(r"\\?\UNC\") {
@@ -473,27 +605,33 @@ static BACKENDS: [BackendSpec; 4] = [
         default_command: "claude",
         builtin_profile: "claude",
         supports_model: true,
+        supports_effort: true,
         supports_interactive: true,
         supports_non_interactive: true,
         supports_resume: true,
         default_prompt_via: PromptVia::Stdin,
         prompt_transports: &[PromptVia::Stdin],
+        prompt_arg: None,
         file_indirection_template: None,
         non_interactive_args: &["--print", "--dangerously-skip-permissions"],
         interactive_args: &["--dangerously-skip-permissions"],
+        session_id_args: &["--session-id", "{backend_session_id}"],
         resume_args: &["--resume", "{backend_session_id}"],
         model_args: &["--model", "{model}"],
+        effort_args: &["--effort", "{effort}"],
     },
     BackendSpec {
         name: "codex",
         default_command: "codex",
         builtin_profile: "codex",
         supports_model: true,
+        supports_effort: true,
         supports_interactive: true,
         supports_non_interactive: true,
-        supports_resume: false,
+        supports_resume: true,
         default_prompt_via: PromptVia::Stdin,
         prompt_transports: &[PromptVia::Stdin],
+        prompt_arg: None,
         file_indirection_template: None,
         non_interactive_args: &[
             "exec",
@@ -504,40 +642,50 @@ static BACKENDS: [BackendSpec; 4] = [
             "--dangerously-bypass-approvals-and-sandbox",
             "--skip-git-repo-check",
         ],
-        resume_args: &[],
+        session_id_args: &[],
+        resume_args: &["resume", "--last", "-"],
         model_args: &["--model", "{model}"],
+        effort_args: &["-c", "model_reasoning_effort=\"{effort}\""],
     },
     BackendSpec {
         name: "opencode",
         default_command: "opencode",
         builtin_profile: "opencode",
         supports_model: true,
+        supports_effort: false,
         supports_interactive: true,
         supports_non_interactive: true,
-        supports_resume: false,
+        supports_resume: true,
         default_prompt_via: PromptVia::ArgOrFileIndirection,
         prompt_transports: &[PromptVia::Arg, PromptVia::FileIndirection],
+        prompt_arg: None,
         file_indirection_template: Some("Run the task described in {prompt_file}."),
         non_interactive_args: &["run", "--dangerously-skip-permissions"],
         interactive_args: &[],
-        resume_args: &[],
+        session_id_args: &[],
+        resume_args: &["--continue"],
         model_args: &["--model", "{model}"],
+        effort_args: &[],
     },
     BackendSpec {
         name: "gemini",
         default_command: "gemini",
         builtin_profile: "gemini",
         supports_model: true,
+        supports_effort: false,
         supports_interactive: true,
         supports_non_interactive: true,
-        supports_resume: false,
+        supports_resume: true,
         default_prompt_via: PromptVia::ArgOrFileIndirection,
         prompt_transports: &[PromptVia::Arg, PromptVia::FileIndirection],
+        prompt_arg: Some("--prompt"),
         file_indirection_template: Some("Read and follow the task in {prompt_file}."),
-        non_interactive_args: &["--yolo", "--skip-trust", "-p"],
+        non_interactive_args: &["--yolo", "--skip-trust"],
         interactive_args: &["--yolo", "--skip-trust"],
-        resume_args: &[],
+        session_id_args: &["--session-id", "{backend_session_id}"],
+        resume_args: &["--resume", "{backend_session_id}"],
         model_args: &["--model", "{model}"],
+        effort_args: &[],
     },
 ];
 
@@ -550,6 +698,7 @@ mod tests {
             profile: "claude".to_string(),
             backend: "claude".to_string(),
             model: None,
+            effort: None,
             cwd: PathBuf::from("."),
             prompt: Some("hello".to_string()),
             prompt_file: None,
@@ -570,8 +719,11 @@ mod tests {
             command: Some("claude".to_string()),
             path: None,
             model: None,
+            effort: None,
             default_timeout: None,
             config_dir: None,
+            env_mode: EnvMode::Inherit,
+            env_allowlist: Vec::new(),
             env: BTreeMap::new(),
             args_strategy: ArgsStrategy::Builtin,
             args: Vec::new(),
@@ -601,6 +753,36 @@ mod tests {
         profile.resume_args = vec!["--resume-occ".to_string(), "{session_id}".to_string()];
         let plan = build_command_plan(&profile, &context(None), false, true, &[]).unwrap();
         assert!(plan.args.iter().any(|arg| arg == "sess_test"));
+    }
+
+    #[test]
+    fn override_strategy_still_applies_resume_and_effort_controls() {
+        let mut profile = profile();
+        profile.name = "codex".to_string();
+        profile.backend = "codex".to_string();
+        profile.command = Some("codex".to_string());
+        profile.args_strategy = ArgsStrategy::Override;
+        profile.args = vec!["exec".to_string()];
+        profile.resume_args = vec!["resume".to_string(), "{session_id}".to_string()];
+        profile.effort = Some("high".to_string());
+
+        let mut context = context(None);
+        context.profile = "codex".to_string();
+        context.backend = "codex".to_string();
+        context.effort = Some("xhigh".to_string());
+
+        let plan = build_command_plan(&profile, &context, false, true, &[]).unwrap();
+
+        assert_eq!(
+            plan.args,
+            vec![
+                "exec",
+                "resume",
+                "sess_test",
+                "-c",
+                "model_reasoning_effort=\"xhigh\""
+            ]
+        );
     }
 
     #[test]

@@ -46,6 +46,7 @@ fn dispatch(cli: Cli) -> OccResult<()> {
         Commands::Vibe(args) => vibe::start(cli.config.as_ref(), args),
         Commands::Doctor => commands::doctor(cli.config.as_ref()),
         Commands::Profiles(args) => match args.command {
+            Some(ProfilesCommand::Add(args)) => commands::profiles_add(cli.config.as_ref(), *args),
             Some(ProfilesCommand::Show { name }) => {
                 commands::profiles_show(cli.config.as_ref(), &name)
             }
@@ -111,9 +112,10 @@ fn dispatch(cli: Cli) -> OccResult<()> {
         Commands::Skills(args) => match args.command {
             Some(SkillsCommand::Show { name }) => commands::skills_show(&name),
             Some(SkillsCommand::Export { name, target }) => commands::skills_export(&name, &target),
-            Some(SkillsCommand::Install { target }) => commands::skills_install(&target),
+            Some(SkillsCommand::Install { target }) => commands::skills_install(target),
             Some(SkillsCommand::Doctor { target }) => commands::skills_doctor(target),
             Some(SkillsCommand::List) | None => commands::skills_list(),
         },
+        Commands::Settings(args) => commands::config_settings(cli.config.as_ref(), args),
     }
 }

@@ -10,6 +10,7 @@ pub struct DetectedCli {
     pub source_path: Option<PathBuf>,
     pub env: BTreeMap<String, String>,
     pub model: Option<String>,
+    pub effort: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -30,8 +31,36 @@ pub fn detect() -> DetectedDefaults {
     }
 }
 
+pub fn detect_for_cli(backend: &str, config_dir: Option<&Path>) -> Option<DetectedCli> {
+    if let Some(config_dir) = config_dir {
+        return match backend {
+            "claude" => Some(detect_claude_config_dir(config_dir)),
+            "codex" => Some(detect_codex_home(config_dir.to_path_buf())),
+            "opencode" => Some(detect_opencode_config_dir(config_dir)),
+            "gemini" => Some(detect_gemini(config_dir)),
+            _ => None,
+        };
+    }
+
+    let detected = detect();
+    match backend {
+        "claude" => Some(detected.claude),
+        "codex" => Some(detected.codex),
+        "opencode" => Some(detected.opencode),
+        "gemini" => Some(detected.gemini),
+        _ => None,
+    }
+}
+
 fn detect_claude(home: &Path) -> DetectedCli {
-    let path = home.join(".claude").join("settings.json");
+    detect_claude_settings(home.join(".claude").join("settings.json"))
+}
+
+fn detect_claude_config_dir(config_dir: &Path) -> DetectedCli {
+    detect_claude_settings(config_dir.join("settings.json"))
+}
+
+fn detect_claude_settings(path: PathBuf) -> DetectedCli {
     let mut out = DetectedCli::default();
     let Ok(text) = fs::read_to_string(&path) else {
         return out;
@@ -59,8 +88,15 @@ fn detect_claude(home: &Path) -> DetectedCli {
 }
 
 fn detect_codex(home: &Path) -> DetectedCli {
+    let codex_home = std::env::var_os("CODEX_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".codex"));
+    detect_codex_home(codex_home)
+}
+
+fn detect_codex_home(codex_home: PathBuf) -> DetectedCli {
     let mut out = DetectedCli::default();
-    let path = home.join(".codex").join("config.toml");
+    let path = codex_home.join("config.toml");
     if let Ok(text) = fs::read_to_string(&path) {
         out.source_path = Some(path);
         if let Ok(value) = text.parse::<toml::Value>() {
@@ -68,6 +104,9 @@ fn detect_codex(home: &Path) -> DetectedCli {
                 out.model = Some(model.to_string());
                 out.env
                     .insert("OPENAI_MODEL".to_string(), model.to_string());
+            }
+            if let Some(effort) = value.get("model_reasoning_effort").and_then(|v| v.as_str()) {
+                out.effort = Some(effort.to_string());
             }
             if let Some(provider) = value.get("model_provider").and_then(|v| v.as_str()) {
                 if let Some(table) = value
@@ -88,7 +127,7 @@ fn detect_codex(home: &Path) -> DetectedCli {
             }
         }
     }
-    let auth_path = home.join(".codex").join("auth.json");
+    let auth_path = codex_home.join("auth.json");
     if let Ok(text) = fs::read_to_string(&auth_path) {
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
             if let Some(key) = v.get("OPENAI_API_KEY").and_then(|v| v.as_str()) {
@@ -101,11 +140,19 @@ fn detect_codex(home: &Path) -> DetectedCli {
 }
 
 fn detect_opencode(home: &Path) -> DetectedCli {
-    let mut out = DetectedCli::default();
-    for candidate in [
+    detect_opencode_candidates([
         home.join(".opencode").join("config.json"),
         home.join(".config").join("opencode").join("config.json"),
-    ] {
+    ])
+}
+
+fn detect_opencode_config_dir(config_dir: &Path) -> DetectedCli {
+    detect_opencode_candidates([config_dir.join("config.json")])
+}
+
+fn detect_opencode_candidates<const N: usize>(candidates: [PathBuf; N]) -> DetectedCli {
+    let mut out = DetectedCli::default();
+    for candidate in candidates {
         if let Ok(text) = fs::read_to_string(&candidate) {
             out.source_path = Some(candidate);
             if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {

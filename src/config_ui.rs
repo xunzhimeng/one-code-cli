@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::config::{self, ConfigFile, EffectiveConfig};
+use crate::config::ConfigFile;
 use crate::error::{OccError, OccResult};
 use crate::output;
 use serde::Serialize;
@@ -306,6 +306,37 @@ fn render_metadata(metadata: &ConfigHtmlMetadata) -> String {
     )
 }
 
+#[cfg(test)]
+#[allow(clippy::items_after_test_module)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn form_html_includes_system_mode_controls() {
+        let html = form_html("{}", "{}", "{}", Path::new("config.toml"));
+        assert!(html.contains("agent.system_mode"));
+        assert!(html.contains("CLAUDE_CONFIG_DIR"));
+        assert!(html.contains("CODEX_HOME"));
+        assert!(html.contains("OPENCODE_CONFIG_DIR"));
+        assert!(html.contains("HOME / USERPROFILE / APPDATA / LOCALAPPDATA"));
+    }
+
+    #[test]
+    fn form_html_saves_from_active_toml_editor() {
+        let html = form_html("{}", "{}", "{}", Path::new("config.toml"));
+        assert!(html.contains("configFromActiveEditor"));
+        assert!(html.contains("RAW_TOML_DIRTY"));
+    }
+
+    #[test]
+    fn form_html_models_effort_as_cli_specific_capability() {
+        let html = form_html("{}", "{}", "{}", Path::new("config.toml"));
+        assert!(html.contains("supports_effort: true"));
+        assert!(html.contains("supportsEffort(agent)"));
+    }
+}
+
 fn path_list(paths: &[PathBuf]) -> String {
     if paths.is_empty() {
         return "(none)".to_string();
@@ -521,7 +552,7 @@ fn is_localhost_origin(headers: &str) -> bool {
 }
 
 pub fn serve_form(
-    config: &EffectiveConfig,
+    initial_file: &ConfigFile,
     save_path: &Path,
     port: Option<u16>,
     open_browser: bool,
@@ -553,7 +584,6 @@ pub fn serve_form(
         let _ = open::that(&url);
     }
 
-    let initial_file = config::editable_config_file(config);
     let initial_json = serde_json::to_string(&initial_file).map_err(|error| {
         OccError::new(
             "serialization_failed",
@@ -660,16 +690,13 @@ fn handle_form_connection(
     if first_line.starts_with("GET /api/config ") {
         // Re-read current file so we always return the latest on-disk state.
         let fresh_json = match fs::read_to_string(save_path) {
-            Ok(toml_text) => {
-                let text = config::migrate_legacy_config_toml(&toml_text);
-                match toml::from_str::<ConfigFile>(&text)
-                    .ok()
-                    .and_then(|cf| serde_json::to_string(&cf).ok())
-                {
-                    Some(json) => json,
-                    None => initial_json.to_string(),
-                }
-            }
+            Ok(toml_text) => match toml::from_str::<ConfigFile>(&toml_text)
+                .ok()
+                .and_then(|cf| serde_json::to_string(&cf).ok())
+            {
+                Some(json) => json,
+                None => initial_json.to_string(),
+            },
             Err(_) => initial_json.to_string(),
         };
         write_response(
@@ -735,6 +762,92 @@ fn handle_form_connection(
         write_response(&mut stream, "200 OK", "text/plain; charset=utf-8", &body)?;
         return Ok(false);
     }
+    if first_line.starts_with("POST /api/toml-preview ") {
+        if !is_localhost_origin(&headers) {
+            write_response(
+                &mut stream,
+                "403 Forbidden",
+                "text/plain; charset=utf-8",
+                "Cross-origin POST requests are not allowed.",
+            )?;
+            return Ok(false);
+        }
+        let text = String::from_utf8_lossy(body).into_owned();
+        let parsed: ConfigFile = match serde_json::from_str(&text) {
+            Ok(value) => value,
+            Err(error) => {
+                write_response(
+                    &mut stream,
+                    "400 Bad Request",
+                    "text/plain; charset=utf-8",
+                    &format!("Config JSON is invalid: {}", error),
+                )?;
+                return Ok(false);
+            }
+        };
+        let toml_text = match toml::to_string_pretty(&parsed) {
+            Ok(value) => value,
+            Err(error) => {
+                write_response(
+                    &mut stream,
+                    "400 Bad Request",
+                    "text/plain; charset=utf-8",
+                    &format!("Config could not be serialized to TOML: {}", error),
+                )?;
+                return Ok(false);
+            }
+        };
+        write_response(
+            &mut stream,
+            "200 OK",
+            "text/plain; charset=utf-8",
+            &toml_text,
+        )?;
+        return Ok(false);
+    }
+    if first_line.starts_with("POST /api/toml-parse ") {
+        if !is_localhost_origin(&headers) {
+            write_response(
+                &mut stream,
+                "403 Forbidden",
+                "text/plain; charset=utf-8",
+                "Cross-origin POST requests are not allowed.",
+            )?;
+            return Ok(false);
+        }
+        let text = String::from_utf8_lossy(body).into_owned();
+        let parsed: ConfigFile = match toml::from_str(&text) {
+            Ok(value) => value,
+            Err(error) => {
+                write_response(
+                    &mut stream,
+                    "400 Bad Request",
+                    "text/plain; charset=utf-8",
+                    &format!("Config TOML is invalid: {}", error),
+                )?;
+                return Ok(false);
+            }
+        };
+        let json_text = match serde_json::to_string(&parsed) {
+            Ok(value) => value,
+            Err(error) => {
+                write_response(
+                    &mut stream,
+                    "400 Bad Request",
+                    "text/plain; charset=utf-8",
+                    &format!("Config could not be serialized to JSON: {}", error),
+                )?;
+                return Ok(false);
+            }
+        };
+        write_response(
+            &mut stream,
+            "200 OK",
+            "application/json; charset=utf-8",
+            &json_text,
+        )?;
+        return Ok(false);
+    }
     if first_line.starts_with("POST /api/shutdown ") {
         if !is_localhost_origin(&headers) {
             write_response(
@@ -781,173 +894,273 @@ fn form_html(
 <title>One Code CLI Config</title>
 <style>
 :root {{
-  --bg: #f5f7fb;
-  --surface: #ffffff;
-  --surface-alt: #f1f5f9;
-  --border: #e2e8f0;
-  --border-strong: #cbd5e1;
-  --text: #0f172a;
-  --text-muted: #64748b;
-  --text-subtle: #94a3b8;
-  --primary: #2563eb;
+  --bg: #0b0f19;
+  --bg-gradient: linear-gradient(135deg, #0b0f19 0%, #111827 100%);
+  --surface: rgba(17, 24, 39, 0.7);
+  --surface-alt: rgba(31, 41, 55, 0.5);
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --text: #f3f4f6;
+  --text-muted: #9ca3af;
+  --text-subtle: #6b7280;
+  --primary: #8b5cf6;
   --primary-text: #ffffff;
-  --primary-hover: #1d4ed8;
-  --primary-soft: #dbeafe;
-  --secondary-bg: #e2e8f0;
-  --secondary-text: #0f172a;
-  --secondary-hover: #cbd5e1;
-  --danger: #dc2626;
-  --danger-text: #ffffff;
-  --danger-hover: #b91c1c;
-  --success: #16a34a;
-  --error: #dc2626;
-  --code-bg: #f1f5f9;
-  --code-text: #0c4a6e;
-  --shadow: 0 1px 2px rgba(15,23,42,.06), 0 4px 12px rgba(15,23,42,.04);
-  --shadow-strong: 0 4px 24px rgba(15,23,42,.08);
-  --tab-active-bg: #ffffff;
-  --tab-inactive: #64748b;
-  --focus: 0 0 0 3px rgba(37,99,235,.15);
-}}
-html[data-theme="dark"] {{
-  --bg: #0b1220;
-  --surface: #111a2e;
-  --surface-alt: #0f1729;
-  --border: #1e293b;
-  --border-strong: #334155;
-  --text: #e2e8f0;
-  --text-muted: #94a3b8;
-  --text-subtle: #64748b;
-  --primary: #38bdf8;
-  --primary-text: #082f49;
-  --primary-hover: #7dd3fc;
-  --primary-soft: #082f49;
-  --secondary-bg: #1e293b;
-  --secondary-text: #e2e8f0;
-  --secondary-hover: #334155;
+  --primary-hover: #a78bfa;
+  --primary-soft: rgba(139, 92, 246, 0.15);
+  --secondary-bg: rgba(31, 41, 55, 0.8);
+  --secondary-text: #e5e7eb;
+  --secondary-hover: rgba(55, 65, 81, 0.8);
   --danger: #ef4444;
   --danger-text: #ffffff;
   --danger-hover: #f87171;
-  --success: #4ade80;
-  --error: #f87171;
-  --code-bg: #0b1220;
-  --code-text: #bae6fd;
-  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
-  --shadow-strong: 0 8px 40px rgba(0,0,0,.5);
-  --tab-active-bg: #111a2e;
-  --tab-inactive: #94a3b8;
-  --focus: 0 0 0 3px rgba(56,189,248,.25);
+  --success: #10b981;
+  --error: #f43f5e;
+  --code-bg: #030712;
+  --code-text: #a78bfa;
+  --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-strong: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  --tab-active-bg: rgba(139, 92, 246, 0.2);
+  --tab-inactive: #9ca3af;
+  --focus: 0 0 0 3px rgba(139, 92, 246, 0.3), 0 0 12px rgba(139, 92, 246, 0.2);
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --input-bg: rgba(17, 24, 39, 0.4);
+  --input-bg-focus: rgba(17, 24, 39, 0.7);
+  --toolbar-bg: rgba(11, 15, 25, 0.85);
+  --tabs-bg: rgba(31, 41, 55, 0.3);
+  --tab-hover-bg: rgba(255, 255, 255, 0.04);
+  --toast-bg: rgba(17, 24, 39, 0.95);
+}}
+html[data-theme="light"] {{
+  --bg: #FAF8F5;
+  --bg-gradient: linear-gradient(135deg, #FCFAF7 0%, #F5F1E9 100%);
+  --surface: rgba(255, 255, 255, 0.95);
+  --surface-alt: rgba(245, 241, 233, 0.7);
+  --border: rgba(216, 209, 194, 0.5);
+  --border-strong: rgba(180, 170, 150, 0.5);
+  --text: #2E2B2A;
+  --text-muted: #6E6762;
+  --text-subtle: #A59E98;
+  --primary: #6B5EAE;
+  --primary-text: #ffffff;
+  --primary-hover: #584A9A;
+  --primary-soft: rgba(107, 94, 174, 0.12);
+  --secondary-bg: #EFEBE4;
+  --secondary-text: #3A3432;
+  --secondary-hover: #E2DBD0;
+  --danger: #dc2626;
+  --danger-text: #ffffff;
+  --danger-hover: #b91c1c;
+  --success: #059669;
+  --error: #e11d48;
+  --code-bg: #F5EFE6;
+  --code-text: #6B5EAE;
+  --shadow: 0 4px 12px -2px rgba(180, 170, 150, 0.12), 0 2px 6px -1px rgba(180, 170, 150, 0.08);
+  --shadow-strong: 0 20px 32px -8px rgba(180, 170, 150, 0.25), 0 8px 16px -4px rgba(180, 170, 150, 0.15);
+  --tab-active-bg: rgba(107, 94, 174, 0.15);
+  --tab-inactive: #7E736E;
+  --focus: 0 0 0 3px rgba(107, 94, 174, 0.25);
+  --input-bg: #ffffff;
+  --input-bg-focus: #ffffff;
+  --toolbar-bg: rgba(252, 250, 247, 0.85);
+  --tabs-bg: rgba(230, 224, 214, 0.5);
+  --tab-hover-bg: rgba(0, 0, 0, 0.03);
+  --toast-bg: rgba(255, 255, 255, 0.95);
 }}
 * {{ box-sizing: border-box; }}
 html, body {{ height: 100%; }}
 body {{
   margin: 0;
-  background: var(--bg);
+  background: var(--bg-gradient);
+  background-attachment: fixed;
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--font-sans);
   font-size: 14px;
   line-height: 1.55;
 }}
+::-webkit-scrollbar {{
+  width: 8px;
+  height: 8px;
+}}
+::-webkit-scrollbar-track {{
+  background: transparent;
+}}
+::-webkit-scrollbar-thumb {{
+  background: var(--border-strong);
+  border-radius: 4px;
+}}
+::-webkit-scrollbar-thumb:hover {{
+  background: var(--primary);
+}}
 main {{ max-width: 1280px; margin: 0 auto; padding: 24px 24px 96px; }}
-h1 {{ margin: 0 0 4px; font-size: 22px; font-weight: 600; }}
-h2 {{ margin: 0 0 14px; font-size: 16px; font-weight: 600; }}
+h1 {{ margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.5px; background: linear-gradient(135deg, var(--text) 30%, var(--primary-hover) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }}
+h2 {{ margin: 0 0 14px; font-size: 18px; font-weight: 600; letter-spacing: -0.3px; }}
 p {{ margin: 0 0 8px; color: var(--text-muted); }}
 .muted {{ color: var(--text-muted); font-size: 13px; }}
 code {{
   background: var(--code-bg); color: var(--code-text);
-  padding: 1px 6px; border-radius: 4px;
-  font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  padding: 2px 6px; border-radius: 6px;
+  font-family: var(--font-mono); font-size: 12px;
+  border: 1px solid var(--border);
 }}
 
-header {{ display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }}
+header {{ display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; padding-bottom: 16px; border-bottom: 1px solid var(--border); }}
 header .info {{ flex: 1 1 auto; min-width: 240px; }}
-header .info p {{ font-size: 13px; }}
-.brand-row {{ display: flex; align-items: center; gap: 10px; }}
-.brand-tag {{ display: inline-block; background: var(--primary); color: var(--primary-text); font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 600; letter-spacing: .5px; }}
+header .info p {{ font-size: 13px; margin: 4px 0 0; }}
+.brand-row {{ display: flex; align-items: center; gap: 12px; }}
+.brand-tag {{ display: inline-block; background: var(--primary-soft); border: 1px solid var(--primary); color: var(--primary-hover); font-size: 11px; padding: 2px 10px; border-radius: 999px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }}
 
 .toolbar {{
   position: sticky; top: 0; z-index: 10;
-  background: var(--bg);
-  padding: 12px 0;
-  border-bottom: 1px solid var(--border);
+  background: var(--toolbar-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
   display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: 24px;
+  box-shadow: var(--shadow);
 }}
 .toolbar .spacer {{ flex: 1; }}
-.toolbar .status {{ min-height: 22px; color: var(--success); font-size: 13px; }}
+.toolbar .status {{ min-height: 22px; color: var(--success); font-size: 13px; font-weight: 500; }}
 .toolbar .status.error {{ color: var(--error); }}
 
 button {{
-  border: 0; border-radius: 8px; padding: 8px 14px; cursor: pointer;
+  border: 0; border-radius: 10px; padding: 10px 18px; cursor: pointer;
   background: var(--primary); color: var(--primary-text); font-weight: 600; font-size: 13px;
-  transition: background .15s, transform .05s;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
 }}
-button:hover {{ background: var(--primary-hover); }}
-button:active {{ transform: translateY(1px); }}
+button:hover {{
+  background: var(--primary-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(139, 92, 246, 0.35);
+}}
+button:active {{ transform: translateY(0); }}
 button:focus-visible {{ outline: none; box-shadow: var(--focus); }}
-button.secondary {{ background: var(--secondary-bg); color: var(--secondary-text); }}
-button.secondary:hover {{ background: var(--secondary-hover); }}
+button.secondary {{ background: var(--secondary-bg); color: var(--secondary-text); border: 1px solid var(--border); }}
+button.secondary:hover {{ background: var(--secondary-hover); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }}
 button.danger {{ background: var(--danger); color: var(--danger-text); }}
-button.danger:hover {{ background: var(--danger-hover); }}
-button.ghost {{ background: transparent; color: var(--text-muted); padding: 6px 10px; }}
-button.ghost:hover {{ background: var(--secondary-bg); color: var(--text); }}
-button.small {{ padding: 4px 10px; font-size: 12px; }}
+button.danger:hover {{ background: var(--danger-hover); box-shadow: 0 6px 20px rgba(239, 68, 68, 0.35); }}
+button.ghost {{ background: transparent; color: var(--text-muted); padding: 6px 12px; border: 1px solid transparent; }}
+button.ghost:hover {{ background: var(--surface-alt); color: var(--text); border-color: var(--border); }}
+button.small {{ padding: 6px 12px; font-size: 12px; border-radius: 8px; }}
 
 input[type=text], input[type=number], input[type=password], textarea, select {{
   width: 100%; box-sizing: border-box;
-  border: 1px solid var(--border-strong); background: var(--surface); color: var(--text);
-  padding: 8px 10px; border-radius: 6px;
-  font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  transition: border .15s, box-shadow .15s;
+  border: 1px solid var(--border-strong); background: var(--input-bg); color: var(--text);
+  padding: 10px 14px; border-radius: 10px;
+  font-family: var(--font-mono); font-size: 13px;
+  transition: all 0.2s;
 }}
 input[type=text]:focus, input[type=number]:focus, input[type=password]:focus, textarea:focus, select:focus {{
   outline: none; border-color: var(--primary); box-shadow: var(--focus);
+  background: var(--input-bg-focus);
 }}
-textarea {{ min-height: 60px; resize: vertical; line-height: 1.5; }}
-input[type=checkbox] {{ width: 16px; height: 16px; cursor: pointer; }}
-label {{ display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px; font-weight: 500; }}
-.field-hint {{ font-size: 11px; color: var(--text-subtle); margin-top: 4px; }}
+textarea {{ min-height: 80px; resize: vertical; line-height: 1.5; }}
+
+/* Styled Switch instead of checkbox */
+.switch {{
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+}}
+.switch input {{
+  opacity: 0;
+  width: 0;
+  height: 0;
+}}
+.slider {{
+  position: absolute;
+  cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-color: var(--border-strong);
+  transition: .3s;
+  border-radius: 24px;
+}}
+.slider:before {{
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .3s;
+  border-radius: 50%;
+}}
+input:checked + .slider {{
+  background-color: var(--primary);
+}}
+input:focus + .slider {{
+  box-shadow: var(--focus);
+}}
+input:checked + .slider:before {{
+  transform: translateX(20px);
+}}
+
+label {{ display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px; font-weight: 600; letter-spacing: 0.3px; text-transform: uppercase; }}
+.field-hint {{ font-size: 11px; color: var(--text-subtle); margin-top: 6px; }}
+.mode-note {{
+  margin: 8px 0 12px; padding: 10px 12px; border-radius: 10px;
+  background: var(--surface-alt); border: 1px solid var(--border);
+  color: var(--text-muted); font-size: 12px;
+}}
+.mode-note code {{ white-space: normal; overflow-wrap: anywhere; }}
 
 .tabs {{
-  display: flex; gap: 4px; margin-bottom: 16px;
-  background: var(--surface-alt); padding: 4px;
-  border-radius: 10px; border: 1px solid var(--border);
+  display: flex; gap: 8px; margin-bottom: 24px;
+  background: var(--tabs-bg); padding: 6px;
+  border-radius: 14px; border: 1px solid var(--border);
   overflow-x: auto;
 }}
 .tab {{
-  padding: 8px 16px; cursor: pointer; border-radius: 6px;
-  color: var(--tab-inactive); font-weight: 500; font-size: 13px;
-  white-space: nowrap; user-select: none; transition: background .15s, color .15s;
+  padding: 10px 20px; cursor: pointer; border-radius: 10px;
+  color: var(--tab-inactive); font-weight: 600; font-size: 13px;
+  white-space: nowrap; user-select: none; transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }}
-.tab:hover {{ color: var(--text); }}
-.tab.active {{ background: var(--tab-active-bg); color: var(--text); box-shadow: var(--shadow); }}
+.tab:hover {{ color: var(--text); background: var(--tab-hover-bg); }}
+.tab.active {{ background: var(--primary); color: var(--primary-text); box-shadow: 0 6px 16px rgba(139, 92, 246, 0.35); }}
 
 .tab-panel {{ display: none; }}
-.tab-panel.active {{ display: block; animation: fade .15s ease-out; }}
-@keyframes fade {{ from {{ opacity: 0; transform: translateY(2px); }} to {{ opacity: 1; transform: none; }} }}
+.tab-panel.active {{ display: block; animation: fade .2s ease-out; }}
+@keyframes fade {{ from {{ opacity: 0; transform: translateY(4px); }} to {{ opacity: 1; transform: none; }} }}
 
 .card {{
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: 12px; padding: 18px; margin-bottom: 14px;
+  background: var(--surface); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  border-radius: 16px; padding: 24px; margin-bottom: 20px;
   box-shadow: var(--shadow);
+  transition: all 0.25s;
 }}
-.card-title {{ display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }}
-.card-title h2 {{ margin: 0; }}
-.card-desc {{ margin-bottom: 14px; }}
+.card:hover {{
+  box-shadow: var(--shadow-strong);
+  border-color: var(--border-strong);
+}}
+.card-title {{ display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }}
+.card-title h2 {{ margin: 0; font-size: 18px; font-weight: 600; }}
+.card-desc {{ margin-bottom: 18px; }}
 
-.grid {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px 16px; }}
+.grid {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px 20px; }}
 .grid .full {{ grid-column: 1 / -1; }}
 @media (max-width: 720px) {{ .grid {{ grid-template-columns: 1fr; }} }}
 
-.kv-list {{ display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }}
-.kv-row {{ display: grid; grid-template-columns: 220px 1fr auto; gap: 8px; align-items: center; }}
+.kv-list {{ display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }}
+.kv-row {{ display: grid; grid-template-columns: 220px 1fr auto; gap: 10px; align-items: center; }}
 @media (max-width: 720px) {{ .kv-row {{ grid-template-columns: 1fr; }} }}
 
-.mapping-table {{ display: flex; flex-direction: column; gap: 6px; }}
+.mapping-table {{ display: flex; flex-direction: column; gap: 10px; }}
 .mapping-row {{
-  display: grid; grid-template-columns: 220px 1fr; gap: 12px; align-items: center;
-  padding: 8px 12px; border-radius: 8px; background: var(--surface-alt);
+  display: grid; grid-template-columns: 220px 1fr; gap: 16px; align-items: center;
+  padding: 12px 16px; border-radius: 12px; background: var(--surface-alt);
   border: 1px solid var(--border);
+  transition: all 0.2s;
+}}
+.mapping-row:hover {{
+  border-color: var(--border-strong);
+  background: var(--surface);
 }}
 .mapping-row .mapping-label {{ font-size: 13px; }}
 .mapping-row .mapping-label strong {{ color: var(--text); font-weight: 600; }}
@@ -955,84 +1168,142 @@ label {{ display: block; font-size: 12px; color: var(--text-muted); margin-botto
 @media (max-width: 720px) {{ .mapping-row {{ grid-template-columns: 1fr; }} }}
 
 .agents-layout {{
-  display: grid; grid-template-columns: 280px 1fr; gap: 16px;
+  display: grid; grid-template-columns: 280px 1fr; gap: 20px;
   align-items: start;
 }}
 @media (max-width: 900px) {{ .agents-layout {{ grid-template-columns: 1fr; }} }}
 
 .agents-side {{
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: 12px; padding: 14px; box-shadow: var(--shadow);
-  position: sticky; top: 80px;
+  border-radius: 16px; padding: 18px; box-shadow: var(--shadow);
+  position: sticky; top: 100px;
 }}
 .agents-side .agents-list-head {{
-  display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+  display: flex; align-items: center; gap: 8px; margin-bottom: 14px;
 }}
-.agents-side .agents-list-head h2 {{ margin: 0; font-size: 14px; }}
-.agents-side .agents-list-head .count {{ color: var(--text-muted); font-size: 12px; }}
+.agents-side .agents-list-head h2 {{ margin: 0; font-size: 15px; font-weight: 700; }}
+.agents-side .agents-list-head .count {{ background: var(--primary-soft); color: var(--primary-hover); font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 700; }}
 .agents-side .agents-list-head .spacer {{ flex: 1; }}
-.agent-list {{ display: flex; flex-direction: column; gap: 4px; max-height: 60vh; overflow-y: auto; }}
+.agent-list {{ display: flex; flex-direction: column; gap: 6px; max-height: 60vh; overflow-y: auto; }}
 .agent-item {{
-  padding: 10px 12px; border-radius: 8px; cursor: pointer;
+  padding: 12px 14px; border-radius: 10px; cursor: pointer;
   border: 1px solid transparent;
-  display: flex; flex-direction: column; gap: 2px;
-  transition: background .12s, border .12s;
+  display: flex; flex-direction: column; gap: 4px;
+  transition: all 0.2s;
 }}
-.agent-item:hover {{ background: var(--surface-alt); }}
-.agent-item.active {{ background: var(--primary-soft); border-color: var(--primary); }}
+.agent-item:hover {{ background: var(--surface-alt); transform: translateX(4px); }}
+.agent-item.active {{ background: var(--primary-soft); border-color: var(--primary); box-shadow: inset 3px 0 0 var(--primary); }}
 .agent-item .name {{ font-weight: 600; font-size: 13px; }}
-.agent-item .cli {{ font-size: 11px; color: var(--text-muted); }}
+.agent-item .cli {{ font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }}
 .agent-item.active .cli {{ color: var(--text-muted); }}
-.agent-empty {{ color: var(--text-muted); font-size: 12px; padding: 12px 4px; text-align: center; }}
+.agent-empty {{ color: var(--text-muted); font-size: 12px; padding: 16px 4px; text-align: center; }}
 
 .agent-pane {{
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: 12px; padding: 18px; box-shadow: var(--shadow);
+  border-radius: 16px; padding: 24px; box-shadow: var(--shadow);
   min-height: 240px;
 }}
 .agent-pane-empty {{
   display: flex; align-items: center; justify-content: center;
   min-height: 320px; color: var(--text-muted); font-size: 13px;
-  flex-direction: column; gap: 12px;
+  flex-direction: column; gap: 14px;
 }}
 .agent-section-title {{
-  font-size: 13px; font-weight: 600; color: var(--text);
-  margin: 16px 0 8px; padding-top: 8px;
-  border-top: 1px dashed var(--border); padding-top: 14px;
+  font-size: 13px; font-weight: 700; color: var(--text);
+  margin: 20px 0 10px; padding-top: 18px;
+  border-top: 1px dashed var(--border);
+  text-transform: uppercase; letter-spacing: 0.5px;
 }}
 .agent-section-title:first-of-type {{ border-top: 0; padding-top: 0; }}
-.secret-row {{ display: flex; gap: 6px; align-items: center; }}
+.secret-row {{ display: flex; gap: 8px; align-items: center; }}
 .secret-row input {{ flex: 1; }}
 
 .metadata {{ font-size: 12px; }}
-.metadata p {{ margin: 4px 0; }}
+.metadata p {{ margin: 6px 0; }}
 .metadata pre {{
   background: var(--code-bg); color: var(--code-text);
-  padding: 10px 12px; border-radius: 6px; margin: 4px 0 12px;
+  padding: 12px 14px; border-radius: 8px; margin: 6px 0 14px;
   white-space: pre-wrap; word-break: break-all;
-  font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono); font-size: 12px;
+  border: 1px solid var(--border);
 }}
 
 dialog {{
   background: var(--surface); color: var(--text);
-  border: 1px solid var(--border-strong); border-radius: 12px;
+  border: 1px solid var(--border-strong); border-radius: 16px;
   padding: 0; max-width: 90vw; width: 800px;
   box-shadow: var(--shadow-strong);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  animation: dlgShow 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }}
-dialog::backdrop {{ background: rgba(15,23,42,.4); }}
-dialog .dlg-head {{ display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); }}
+@keyframes dlgShow {{
+  from {{ opacity: 0; transform: scale(0.95) translateY(10px); }}
+  to {{ opacity: 1; transform: scale(1) translateY(0); }}
+}}
+dialog::backdrop {{ background: rgba(11, 15, 25, 0.6); backdrop-filter: blur(4px); }}
+dialog .dlg-head {{ display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid var(--border); }}
 dialog pre {{
-  margin: 0; padding: 16px; max-height: 70vh; overflow: auto;
+  margin: 0; padding: 20px; max-height: 70vh; overflow: auto;
   background: var(--code-bg); color: var(--text);
-  font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono); font-size: 12px;
+  line-height: 1.5;
 }}
 
-.toggle-group {{ display: flex; gap: 4px; background: var(--surface-alt); padding: 3px; border-radius: 8px; border: 1px solid var(--border); }}
-.toggle-group button {{ padding: 4px 10px; font-size: 12px; background: transparent; color: var(--text-muted); border-radius: 5px; }}
-.toggle-group button.active {{ background: var(--tab-active-bg); color: var(--text); box-shadow: var(--shadow); }}
+.toggle-group {{ display: flex; gap: 4px; background: var(--tabs-bg); padding: 4px; border-radius: 10px; border: 1px solid var(--border); }}
+.toggle-group button {{ padding: 6px 12px; font-size: 12px; background: transparent; color: var(--text-muted); border-radius: 6px; border: 0; font-weight: 600; }}
+.toggle-group button:hover {{ background: var(--tab-hover-bg); transform: none; box-shadow: none; }}
+.toggle-group button.active {{ background: var(--tab-active-bg); color: var(--primary-hover); box-shadow: var(--shadow); }}
+
+/* Toast notifications */
+.toast-container {{
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  pointer-events: none;
+}}
+.toast {{
+  min-width: 280px;
+  max-width: 420px;
+  padding: 14px 20px;
+  border-radius: 12px;
+  background: var(--toast-bg);
+  backdrop-filter: blur(16px);
+  border-left: 4px solid var(--primary);
+  border-top: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-strong);
+  color: var(--text);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  pointer-events: auto;
+  animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}}
+.toast.success {{ border-left-color: var(--success); }}
+.toast.error {{ border-left-color: var(--error); }}
+.toast.info {{ border-left-color: var(--primary); }}
+@keyframes slideIn {{
+  from {{ opacity: 0; transform: translateY(-20px) scale(0.95); }}
+  to {{ opacity: 1; transform: translateY(0) scale(1); }}
+}}
+@keyframes fadeOut {{
+  from {{ opacity: 1; transform: translateY(0) scale(1); }}
+  to {{ opacity: 0; transform: translateY(-20px) scale(0.95); }}
+}}
 </style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 <body>
+<div id="toast-container" class="toast-container"></div>
 <main>
 
 <header>
@@ -1068,6 +1339,7 @@ dialog pre {{
   <div class="tab active" data-tab="general" role="tab" tabindex="0" data-i18n="tab.general">常规</div>
   <div class="tab" data-tab="mapping" role="tab" tabindex="0" data-i18n="tab.mapping">CLI 映射</div>
   <div class="tab" data-tab="agents" role="tab" tabindex="0" data-i18n="tab.agents">Agents</div>
+  <div class="tab" data-tab="toml-editor" role="tab" tabindex="0" data-i18n="tab.toml_editor">TOML 编辑器</div>
   <div class="tab" data-tab="context" role="tab" tabindex="0" data-i18n="tab.context">上下文</div>
 </div>
 
@@ -1101,9 +1373,12 @@ dialog pre {{
     <div class="card-title"><h2 data-i18n="general.proxy">代理转发</h2></div>
     <p class="card-desc muted" data-i18n="general.proxy.desc">是否把代理相关环境变量转发给子 CLI。</p>
     <div class="grid">
-      <div style="display:flex;align-items:center;gap:10px;">
-        <input type="checkbox" id="proxy-enabled" />
-        <label for="proxy-enabled" style="margin:0;cursor:pointer;" data-i18n="field.proxy_enabled">启用代理转发</label>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <label class="switch">
+          <input type="checkbox" id="proxy-enabled" />
+          <span class="slider"></span>
+        </label>
+        <label for="proxy-enabled" style="margin:0;cursor:pointer;font-weight:600;font-size:14px;text-transform:none;" data-i18n="field.proxy_enabled">启用代理转发</label>
       </div>
       <div></div>
       <div class="full">
@@ -1122,13 +1397,13 @@ dialog pre {{
   </div>
   <div class="card">
     <div class="card-title"><h2 data-i18n="mapping.aliases">CLI 别名</h2></div>
-    <p class="card-desc muted" data-i18n="mapping.aliases.desc">为每个 CLI 取一个短别名，例如 <code>c</code> 代表 Claude Code。每个 CLI 只能有一个别名，留空则不设别名。</p>
+    <p class="card-desc muted" data-i18n="mapping.aliases.desc">为每个 CLI 取短别名，例如 <code>c</code> 代表 Claude Code。每行一个，留空则不设别名。</p>
     <div class="mapping-table" id="cli-aliases-list"></div>
   </div>
 </section>
 
 <section class="tab-panel" data-panel="agents">
-  <p class="muted" data-i18n="agents.desc" style="margin-bottom:14px;">同一个 CLI 可以有多个 agent，例如 Claude Code 同时用 Anthropic 官方和 DeepSeek 兼容后端。在 env 中配置每个 agent 自己的 API key / base URL / model。</p>
+  <p class="muted" data-i18n="agents.desc" style="margin-bottom:14px;">同一个 CLI 可以有多个 agent，例如 Claude Code 同时用 Anthropic 官方和 DeepSeek 兼容后端。在 config_dir 和 env 中配置每个 agent 自己的系统目录、API key / base URL / model。</p>
   <div class="agents-layout">
     <aside class="agents-side">
       <div class="agents-list-head">
@@ -1144,6 +1419,18 @@ dialog pre {{
         <div data-i18n="agents.empty">尚未选择 agent</div>
         <button id="add-agent-empty" class="small" data-i18n="action.add_agent">+ 新建 agent</button>
       </div>
+    </div>
+  </div>
+</section>
+
+<section class="tab-panel" data-panel="toml-editor">
+  <div class="card">
+    <div class="card-title"><h2 data-i18n="toml_editor.title">原始 TOML 编辑与同步</h2></div>
+    <p class="card-desc muted" data-i18n="toml_editor.desc">可以直接在这里查看和编辑底层 TOML 配置内容。支持双向实时同步。</p>
+    <textarea id="raw-toml-textarea" spellcheck="false" style="min-height: 480px; font-family: var(--font-mono); line-height: 1.5;"></textarea>
+    <div class="actions" style="margin-top: 14px; display: flex; gap: 10px;">
+      <button id="sync-to-form-btn" data-i18n="action.sync_to_form">⚡ 同步到表单</button>
+      <button id="sync-from-form-btn" class="secondary" data-i18n="action.sync_from_form">🔄 从表单同步</button>
     </div>
   </div>
 </section>
@@ -1174,12 +1461,15 @@ const SAVE_PATH = {save_path_json};
 const DETECTED = {detected_json};
 let CONFIG = {initial_json};
 let SELECTED_AGENT_INDEX = null;
+let RAW_TOML_DIRTY = false;
 
 const CLI_DEFS = [
   {{
     id: 'claude',
     label: 'Claude Code',
     default_command: 'claude',
+    config_env: 'CLAUDE_CONFIG_DIR',
+    supports_effort: true,
     env: [
       {{ key: 'ANTHROPIC_API_KEY', label_zh: 'API Key', label_en: 'API Key', secret: true,
          desc_zh: 'Anthropic 官方 API Key，或第三方兼容后端的 token。',
@@ -1201,6 +1491,8 @@ const CLI_DEFS = [
     id: 'codex',
     label: 'Codex CLI',
     default_command: 'codex',
+    config_env: 'CODEX_HOME',
+    supports_effort: true,
     env: [
       {{ key: 'OPENAI_API_KEY', label_zh: 'API Key', label_en: 'API Key', secret: true,
          desc_zh: 'OpenAI API Key，或 OpenAI 兼容后端的 token。',
@@ -1221,6 +1513,8 @@ const CLI_DEFS = [
     id: 'opencode',
     label: 'opencode',
     default_command: 'opencode',
+    config_env: 'OPENCODE_CONFIG_DIR',
+    supports_effort: false,
     env: [
       {{ key: 'OPENCODE_API_KEY', label_zh: 'API Key', label_en: 'API Key', secret: true,
          desc_zh: 'opencode 使用的 API Key。', desc_en: 'API key used by opencode.' }},
@@ -1234,6 +1528,8 @@ const CLI_DEFS = [
     id: 'gemini',
     label: 'Gemini CLI',
     default_command: 'gemini',
+    config_env: 'HOME / USERPROFILE / APPDATA / LOCALAPPDATA',
+    supports_effort: false,
     env: [
       {{ key: 'GEMINI_API_KEY', label_zh: 'API Key', label_en: 'API Key', secret: true,
          desc_zh: 'Google AI Studio 的 Gemini API Key。', desc_en: 'Gemini API key from Google AI Studio.' }},
@@ -1269,6 +1565,11 @@ const I18N = {{
     "tab.general": "常规",
     "tab.mapping": "CLI 映射",
     "tab.agents": "Agents",
+    "tab.toml_editor": "TOML 编辑器",
+    "toml_editor.title": "原始 TOML 编辑与同步",
+    "toml_editor.desc": "可以直接在这里查看和编辑底层 TOML 配置内容。支持双向实时同步。",
+    "action.sync_to_form": "⚡ 同步到表单",
+    "action.sync_from_form": "🔄 从表单同步",
     "tab.context": "上下文",
     "general.basic": "基础设置",
     "general.basic.desc": "控制 occ 自身行为的全局选项。",
@@ -1287,7 +1588,7 @@ const I18N = {{
     "ph.proxy_keys": "HTTP_PROXY",
     "ph.cli_select": "选择 CLI",
     "ph.agent_select": "选择 agent",
-    "ph.alias": "别名（例如 c）",
+    "ph.alias": "别名，每行一个（例如 c）",
     "ph.agent_name": "例如：claude-anthropic",
     "ph.command": "可选，留空使用默认",
     "ph.kv_key": "key",
@@ -1295,10 +1596,10 @@ const I18N = {{
     "mapping.defaults": "CLI 默认 agent",
     "mapping.defaults.desc": "每种 CLI（Claude Code / Codex 等）使用 <code>--cli</code> 时默认调用的 agent。一个 CLI 可以有多个 agent，例如 Claude Code 同时配置 Anthropic 官方接口和 DeepSeek 兼容接口的 agent。",
     "mapping.aliases": "CLI 别名",
-    "mapping.aliases.desc": "为每个 CLI 取一个短别名，例如 <code>c</code> 代表 Claude Code。每个 CLI 只能有一个别名，留空则不设别名。",
+    "mapping.aliases.desc": "为每个 CLI 取短别名，例如 <code>c</code> 代表 Claude Code。每行一个，留空则不设别名。",
     "mapping.no_default": "（不指定）",
     "agents.title": "Agents",
-    "agents.desc": "同一个 CLI 可以有多个 agent，例如 Claude Code 同时用 Anthropic 官方和 DeepSeek 兼容后端。在 env 中配置每个 agent 自己的 API key / base URL / model。",
+    "agents.desc": "同一个 CLI 可以有多个 agent，例如 Claude Code 同时用 Anthropic 官方和 DeepSeek 兼容后端。在 config_dir 和 env 中配置每个 agent 自己的系统目录、API key / base URL / model。",
     "agents.empty": "尚未选择 agent。",
     "agents.untitled": "未命名 agent",
     "context.title": "配置上下文",
@@ -1306,6 +1607,7 @@ const I18N = {{
     "preview.title": "预览（保存前）",
     "agent.section.basic": "基础",
     "agent.section.command": "可执行文件",
+    "agent.section.system": "CLI 系统目录 / 隔离",
     "agent.section.env": "常用环境变量",
     "agent.section.env_extra": "其它 env（每行 KEY=VALUE）",
     "agent.section.advanced": "高级 / 透传参数",
@@ -1313,19 +1615,39 @@ const I18N = {{
     "agent.cli_type": "CLI 类型 *",
     "agent.aliases": "别名（每行一个）",
     "agent.command": "命令名称（例如 claude）",
-    "agent.model": "model（agent 内部记录）",
-    "agent.path": "可执行文件路径（覆盖默认 command）",
-    "agent.config_dir": "config_dir",
-    "agent.default_timeout": "default_timeout",
-    "agent.args_strategy": "args_strategy",
-    "agent.prompt_via": "prompt_via",
-    "agent.prompt_via.default": "（默认）",
-    "agent.args": "args（覆盖时，每行一个）",
-    "agent.extra_args": "extra_args（追加，每行一个）",
-    "agent.interactive_args": "interactive_args（每行一个）",
-    "agent.non_interactive_args": "non_interactive_args（每行一个）",
-    "agent.resume_args": "resume_args（每行一个）",
-    "agent.env_extra": "尚未列出的环境变量，每行 KEY=VALUE。",
+    "agent.model": "主模型名称 (model)",
+    "agent.effort": "推理/思考强度 (effort)",
+    "agent.path": "可执行文件路径 (覆盖 command)",
+    "agent.system_mode": "CLI 系统目录模式",
+    "agent.system_mode.default": "使用默认 CLI 系统目录",
+    "agent.system_mode.isolated": "使用隔离 config_dir",
+    "agent.system_mode.default_note": "默认模式不设置隔离目录，子 CLI 使用它平时自己的登录态和配置目录，环境变量默认继承父进程。",
+    "agent.system_mode.isolated_note": "隔离模式会设置 config_dir，并把子进程环境切到 strict；agent.env 会覆盖父环境，env_allowlist 只放行必要父变量。",
+    "agent.system_env": "隔离时设置的 CLI 环境变量",
+    "action.use_suggested_dir": "使用建议目录",
+    "agent.config_dir": "CLI 系统配置目录 (config_dir)",
+    "agent.env_mode": "环境变量传递模式 (env_mode)",
+    "agent.env_mode.inherit": "完全继承父进程环境 (inherit)",
+    "agent.env_mode.strict": "严格沙箱模式，仅继承白名单 (strict)",
+    "agent.env_allowlist": "环境变量继承白名单 (env_allowlist，每行一个)",
+    "agent.default_timeout": "默认运行超时时间 (default_timeout)",
+    "agent.args_strategy": "命令行参数替换策略 (args_strategy)",
+    "agent.args_strategy.builtin": "内置默认策略 (builtin)",
+    "agent.args_strategy.append": "在后面追加 (append)",
+    "agent.args_strategy.override": "完全覆盖默认 (override)",
+    "agent.prompt_via": "Prompt 输入传输通路 (prompt_via)",
+    "agent.prompt_via.default": "内置默认传输通路",
+    "agent.prompt_via.stdin": "标准输入流 (stdin)",
+    "agent.prompt_via.arg": "直接命令行参数 (arg)",
+    "agent.prompt_via.file": "临时文件输入 (file)",
+    "agent.prompt_via.file_indirection": "临时文件间接引用 (file-indirection)",
+    "agent.prompt_via.arg_or_file_indirection": "命令行参数或文件间接引用自适应",
+    "agent.args": "命令行启动参数列表 (args，完全覆盖，每行一个)",
+    "agent.extra_args": "追加启动参数列表 (extra_args，每行一个)",
+    "agent.interactive_args": "交互模式参数列表 (interactive_args，每行一个)",
+    "agent.non_interactive_args": "非交互模式参数列表 (non_interactive_args，每行一个)",
+    "agent.resume_args": "会话恢复参数列表 (resume_args，每行一个)",
+    "agent.env_extra": "其它自定义环境变量（每行 KEY=VALUE）",
     "agent.env.detected_from": "检测到的默认配置来源：",
     "agent.env.detected_label": "已检测",
     "action.use_detected": "使用此值",
@@ -1371,6 +1693,11 @@ const I18N = {{
     "tab.general": "General",
     "tab.mapping": "CLI mapping",
     "tab.agents": "Agents",
+    "tab.toml_editor": "TOML Editor",
+    "toml_editor.title": "Raw TOML Editor",
+    "toml_editor.desc": "Directly view and edit the raw underlying TOML configuration. Full bi-directional sync is supported.",
+    "action.sync_to_form": "⚡ Sync to Form",
+    "action.sync_from_form": "🔄 Sync from Form",
     "tab.context": "Context",
     "general.basic": "Basics",
     "general.basic.desc": "Global options that control occ itself.",
@@ -1389,7 +1716,7 @@ const I18N = {{
     "ph.proxy_keys": "HTTP_PROXY",
     "ph.cli_select": "Select CLI",
     "ph.agent_select": "Select agent",
-    "ph.alias": "Alias, e.g. c",
+    "ph.alias": "Aliases, one per line, e.g. c",
     "ph.agent_name": "e.g. claude-anthropic",
     "ph.command": "Optional, blank uses default",
     "ph.kv_key": "key",
@@ -1397,10 +1724,10 @@ const I18N = {{
     "mapping.defaults": "Default agent per CLI",
     "mapping.defaults.desc": "Which agent each CLI calls by default with <code>--cli</code>. A CLI can have many agents, e.g. Claude Code with Anthropic official and Claude Code with a DeepSeek-compatible proxy.",
     "mapping.aliases": "CLI aliases",
-    "mapping.aliases.desc": "One short alias per CLI, e.g. <code>c</code> for Claude Code. Leave blank to set no alias.",
+    "mapping.aliases.desc": "Short aliases for each CLI, one per line, e.g. <code>c</code> for Claude Code. Leave blank to set no alias.",
     "mapping.no_default": "(unset)",
     "agents.title": "Agents",
-    "agents.desc": "One CLI can have multiple agents (e.g. Claude Code with Anthropic and Claude Code with a DeepSeek-compatible proxy). Use env to set per-agent API key / base URL / model.",
+    "agents.desc": "One CLI can have multiple agents (e.g. Claude Code with Anthropic and Claude Code with a DeepSeek-compatible proxy). Use config_dir and env to set per-agent system config, API key / base URL / model.",
     "agents.empty": "No agent selected.",
     "agents.untitled": "Untitled agent",
     "context.title": "Config context",
@@ -1408,6 +1735,7 @@ const I18N = {{
     "preview.title": "Preview (before saving)",
     "agent.section.basic": "Basics",
     "agent.section.command": "Executable",
+    "agent.section.system": "CLI system root / isolation",
     "agent.section.env": "Common env vars",
     "agent.section.env_extra": "Other env (KEY=VALUE per line)",
     "agent.section.advanced": "Advanced / passthrough",
@@ -1416,12 +1744,32 @@ const I18N = {{
     "agent.aliases": "Aliases (one per line)",
     "agent.command": "command name (e.g. claude)",
     "agent.model": "model (agent-side label)",
+    "agent.effort": "effort (reasoning level)",
     "agent.path": "executable path (overrides default command)",
-    "agent.config_dir": "config_dir",
+    "agent.system_mode": "CLI system directory mode",
+    "agent.system_mode.default": "Use default CLI system directory",
+    "agent.system_mode.isolated": "Use isolated config_dir",
+    "agent.system_mode.default_note": "Default mode does not set an isolated directory. The child CLI uses its normal login state and config directory, and inherits the parent environment.",
+    "agent.system_mode.isolated_note": "Isolated mode sets config_dir and switches the child process to strict env; agent.env overrides parent values and env_allowlist only allows selected parent variables.",
+    "agent.system_env": "CLI env set for isolation",
+    "action.use_suggested_dir": "Use suggested directory",
+    "agent.config_dir": "config_dir (CLI system root)",
+    "agent.env_mode": "env_mode (environment inheritance)",
+    "agent.env_mode.inherit": "inherit (inherit parent environment)",
+    "agent.env_mode.strict": "strict (rebuild from allowlist)",
+    "agent.env_allowlist": "env_allowlist (one parent env var per line)",
     "agent.default_timeout": "default_timeout",
     "agent.args_strategy": "args_strategy",
+    "agent.args_strategy.builtin": "built-in strategy (builtin)",
+    "agent.args_strategy.append": "append arguments (append)",
+    "agent.args_strategy.override": "override completely (override)",
     "agent.prompt_via": "prompt_via",
     "agent.prompt_via.default": "(default)",
+    "agent.prompt_via.stdin": "Standard Input (stdin)",
+    "agent.prompt_via.arg": "Command line argument (arg)",
+    "agent.prompt_via.file": "Temporary file (file)",
+    "agent.prompt_via.file_indirection": "File indirection (file-indirection)",
+    "agent.prompt_via.arg_or_file_indirection": "Arg or File indirection (auto)",
     "agent.args": "args (override, one per line)",
     "agent.extra_args": "extra_args (append, one per line)",
     "agent.interactive_args": "interactive_args (one per line)",
@@ -1499,7 +1847,10 @@ document.getElementById('theme-light').addEventListener('click', () => {{ THEME 
 document.getElementById('theme-dark').addEventListener('click', () => {{ THEME = 'dark'; localStorage.setItem('occ.theme', THEME); applyTheme(); }});
 
 document.querySelectorAll('.tab').forEach(tab => {{
-  const activate = () => {{
+  const activate = async () => {{
+    if (tab.dataset.tab === 'toml-editor' && !RAW_TOML_DIRTY) {{
+      await syncFromForm(true);
+    }}
     document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
     document.querySelectorAll('.tab-panel').forEach(x => x.classList.remove('active'));
     tab.classList.add('active');
@@ -1509,11 +1860,104 @@ document.querySelectorAll('.tab').forEach(tab => {{
   tab.addEventListener('keydown', e => {{ if (e.key === 'Enter' || e.key === ' ') {{ e.preventDefault(); activate(); }} }});
 }});
 
+document.getElementById('raw-toml-textarea').addEventListener('input', () => {{
+  RAW_TOML_DIRTY = true;
+}});
+
 const statusEl = document.getElementById('status');
+function showToast(text, type = 'success') {{
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+  const toast = document.createElement('div');
+  toast.className = `toast ${{type}}`;
+  let icon = '⚡';
+  if (type === 'success') icon = '✅';
+  else if (type === 'error') icon = '❌';
+  else if (type === 'info') icon = 'ℹ️';
+  toast.innerHTML = `<span style="font-size:16px;">${{icon}}</span><span style="flex:1;">${{escape(text)}}</span>`;
+  container.appendChild(toast);
+  setTimeout(() => {{
+    toast.style.animation = 'fadeOut 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards';
+    setTimeout(() => toast.remove(), 300);
+  }}, 4000);
+}}
 function setStatus(text, isError) {{
+  if (!text) return;
   statusEl.textContent = text;
   statusEl.classList.toggle('error', !!isError);
+  showToast(text, isError ? 'error' : 'success');
   if (text) setTimeout(() => {{ if (statusEl.textContent === text) statusEl.textContent = ''; }}, 5000);
+}}
+
+async function syncFromForm(silent = false) {{
+  const cfg = collectConfig();
+  try {{
+    const r = await fetch('/api/toml-preview', {{
+      method: 'POST',
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify(cfg)
+    }});
+    if (!r.ok) {{
+      const err = await r.text();
+      showToast(err, 'error');
+      return;
+    }}
+    const toml = await r.text();
+    document.getElementById('raw-toml-textarea').value = toml;
+    RAW_TOML_DIRTY = false;
+    if (!silent) {{
+      showToast(LANG === 'en' ? 'Synced from form.' : '已从表单同步最新配置。', 'info');
+    }}
+  }} catch (e) {{
+    showToast(e.message, 'error');
+  }}
+}}
+
+async function syncToForm() {{
+  const toml = document.getElementById('raw-toml-textarea').value;
+  const parsed = await parseTomlText(toml);
+  if (!parsed) return null;
+  mergeConfig(parsed);
+  RAW_TOML_DIRTY = false;
+  showToast(LANG === 'en' ? 'TOML parsed and synced to form.' : 'TOML 已成功解析并同步到表单中。', 'success');
+  return parsed;
+}}
+
+async function parseTomlText(toml) {{
+  try {{
+    const r = await fetch('/api/toml-parse', {{
+      method: 'POST',
+      headers: {{ 'Content-Type': 'text/plain' }},
+      body: toml
+    }});
+    if (!r.ok) {{
+      const err = await r.text();
+      setStatus(err, true);
+      return null;
+    }}
+    return await r.json();
+  }} catch (e) {{
+    setStatus(e.message, true);
+    return null;
+  }}
+}}
+
+async function configFromActiveEditor() {{
+  const active = document.querySelector('.tab.active');
+  if ((active && active.dataset.tab === 'toml-editor') || RAW_TOML_DIRTY) {{
+    const parsed = await parseTomlText(document.getElementById('raw-toml-textarea').value);
+    if (!parsed) return null;
+    parsed.agents = (parsed.agents || []).map(ensureAgentShape);
+    CONFIG = parsed;
+    RAW_TOML_DIRTY = false;
+    return parsed;
+  }}
+  return collectConfig();
+}}
+
+function renderAll() {{
+  applyI18n();
+  applyTheme();
 }}
 
 // ---------------- agents data helpers ----------------
@@ -1526,8 +1970,11 @@ function ensureAgentShape(a) {{
     command: null,
     path: null,
     model: null,
+    effort: null,
     default_timeout: null,
     config_dir: null,
+    env_mode: 'inherit',
+    env_allowlist: [],
     env: {{}},
     args_strategy: 'builtin',
     args: [],
@@ -1609,7 +2056,9 @@ function buildAgentEditor(agent) {{
   nameInput.placeholder = t('ph.agent_name');
   nameInput.style.cssText = 'flex:1;min-width:200px;font-weight:600;font-size:15px;';
   nameInput.addEventListener('input', () => {{
+    const previousSuggestedDir = suggestedConfigDir(agent);
     agent.name = nameInput.value.trim();
+    if (agent.config_dir === previousSuggestedDir) agent.config_dir = suggestedConfigDir(agent);
     refreshAgentList();
     refreshMappingDropdowns();
     refreshDefaultAgentDropdown();
@@ -1662,6 +2111,11 @@ function buildAgentEditor(agent) {{
   cmd.appendChild(field(t('agent.path'), buildText(agent, 'path')));
   wrap.appendChild(cmd);
 
+  // --- section: CLI system isolation ---
+  const systemHost = document.createElement('div');
+  wrap.appendChild(systemHost);
+  buildSystemSection(systemHost, agent);
+
   // --- section: env ---
   const envHost = document.createElement('div');
   wrap.appendChild(envHost);
@@ -1678,20 +2132,24 @@ function buildAgentEditor(agent) {{
   advBody.style.cssText = 'padding:14px;border-top:1px dashed var(--border);';
   const adv = grid();
   adv.appendChild(field(t('agent.model'), buildText(agent, 'model')));
-  adv.appendChild(field(t('agent.config_dir'), buildText(agent, 'config_dir')));
+  if (supportsEffort(agent)) {{
+    adv.appendChild(field(t('agent.effort'), buildText(agent, 'effort')));
+  }} else {{
+    agent.effort = null;
+  }}
   adv.appendChild(field(t('agent.default_timeout'), buildText(agent, 'default_timeout')));
   adv.appendChild(field(t('agent.args_strategy'), buildSelect(agent, 'args_strategy', [
-    {{ value: 'builtin', label: 'builtin' }},
-    {{ value: 'append', label: 'append' }},
-    {{ value: 'override', label: 'override' }},
+    {{ value: 'builtin', label: t('agent.args_strategy.builtin') }},
+    {{ value: 'append', label: t('agent.args_strategy.append') }},
+    {{ value: 'override', label: t('agent.args_strategy.override') }},
   ])));
   adv.appendChild(field(t('agent.prompt_via'), buildSelect(agent, 'prompt_via', [
     {{ value: '', label: t('agent.prompt_via.default') }},
-    {{ value: 'stdin', label: 'stdin' }},
-    {{ value: 'arg', label: 'arg' }},
-    {{ value: 'file', label: 'file' }},
-    {{ value: 'file-indirection', label: 'file-indirection' }},
-    {{ value: 'arg-or-file-indirection', label: 'arg-or-file-indirection' }},
+    {{ value: 'stdin', label: t('agent.prompt_via.stdin') }},
+    {{ value: 'arg', label: t('agent.prompt_via.arg') }},
+    {{ value: 'file', label: t('agent.prompt_via.file') }},
+    {{ value: 'file-indirection', label: t('agent.prompt_via.file_indirection') }},
+    {{ value: 'arg-or-file-indirection', label: t('agent.prompt_via.arg_or_file_indirection') }},
   ])));
   const fullArgs = document.createElement('div');
   fullArgs.style.gridColumn = '1 / -1';
@@ -1781,12 +2239,138 @@ function buildCliTypeSelect(agent) {{
   sel.value = agent.cli_type || '';
   sel.addEventListener('change', () => {{
     agent.cli_type = sel.value;
+    if (!supportsEffort(agent)) agent.effort = null;
     refreshAgentList();
     refreshMappingDropdowns();
     // re-render env section since known keys depend on cli_type
     renderAgentPane();
   }});
   return sel;
+}}
+
+function supportsEffort(agent) {{
+  const def = CLI_DEFS_BY_ID[agent.cli_type];
+  return !!(def && def.supports_effort);
+}}
+
+const DEFAULT_ENV_ALLOWLIST = [
+  'HTTP_PROXY',
+  'HTTPS_PROXY',
+  'ALL_PROXY',
+  'NO_PROXY',
+  'http_proxy',
+  'https_proxy',
+  'all_proxy',
+  'no_proxy',
+];
+
+function buildSystemSection(host, agent) {{
+  host.innerHTML = '';
+  host.appendChild(sectionTitle(t('agent.section.system')));
+  const def = CLI_DEFS_BY_ID[agent.cli_type];
+  const mode = agent.config_dir ? 'isolated' : 'default';
+  const g = grid();
+
+  g.appendChild(field(t('agent.system_mode'), buildSystemModeSelect(agent)));
+
+  const dirWrap = document.createElement('div');
+  dirWrap.appendChild(field(t('agent.config_dir'), buildText(agent, 'config_dir', {{ placeholder: suggestedConfigDir(agent) }})));
+  const dirActions = document.createElement('div');
+  dirActions.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;';
+  const suggested = document.createElement('code');
+  suggested.textContent = suggestedConfigDir(agent);
+  const useSuggested = document.createElement('button');
+  useSuggested.type = 'button';
+  useSuggested.className = 'ghost small';
+  useSuggested.textContent = t('action.use_suggested_dir');
+  useSuggested.addEventListener('click', () => {{
+    agent.config_dir = suggestedConfigDir(agent);
+    agent.env_mode = 'strict';
+    mergeEnvAllowlist(agent, strictModeAllowlist());
+    renderAgentPane();
+  }});
+  dirActions.appendChild(suggested);
+  dirActions.appendChild(useSuggested);
+  dirWrap.appendChild(dirActions);
+  g.appendChild(dirWrap);
+
+  g.appendChild(field(t('agent.env_mode'), buildSelect(agent, 'env_mode', [
+    {{ value: 'inherit', label: t('agent.env_mode.inherit') }},
+    {{ value: 'strict', label: t('agent.env_mode.strict') }},
+  ])));
+  g.appendChild(field(t('agent.env_allowlist'), buildTextarea(agent, 'env_allowlist', {{ asLines: true }})));
+  host.appendChild(g);
+
+  const note = document.createElement('div');
+  note.className = 'mode-note';
+  const envName = def && def.config_env ? def.config_env : '-';
+  note.innerHTML = escape(mode === 'isolated' ? t('agent.system_mode.isolated_note') : t('agent.system_mode.default_note')) +
+    '<br>' + escape(t('agent.system_env')) + ': <code>' + escape(envName) + '</code>';
+  host.appendChild(note);
+}}
+
+function buildSystemModeSelect(agent) {{
+  const sel = document.createElement('select');
+  for (const opt of [
+    {{ value: 'default', label: t('agent.system_mode.default') }},
+    {{ value: 'isolated', label: t('agent.system_mode.isolated') }},
+  ]) {{
+    const o = document.createElement('option');
+    o.value = opt.value;
+    o.textContent = opt.label;
+    sel.appendChild(o);
+  }}
+  sel.value = agent.config_dir ? 'isolated' : 'default';
+  sel.addEventListener('change', () => {{
+    if (sel.value === 'isolated') {{
+      if (!agent.config_dir) agent.config_dir = suggestedConfigDir(agent);
+      agent.env_mode = 'strict';
+      mergeEnvAllowlist(agent, strictModeAllowlist());
+    }} else {{
+      agent.config_dir = null;
+      agent.env_mode = 'inherit';
+    }}
+    renderAgentPane();
+  }});
+  return sel;
+}}
+
+function suggestedConfigDir(agent) {{
+  const segment = safePathSegment(agent.name || 'new-agent');
+  const base = configDirectoryPath();
+  return base ? base + '/agents/' + segment + '/system' : 'agents/' + segment + '/system';
+}}
+
+function configDirectoryPath() {{
+  const path = String(SAVE_PATH || '').replace(/\\/g, '/');
+  const idx = path.lastIndexOf('/');
+  if (idx <= 0) return '';
+  return path.slice(0, idx);
+}}
+
+function safePathSegment(value) {{
+  const text = String(value || 'agent').trim().toLowerCase();
+  const cleaned = text.replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+  return (!cleaned || cleaned === '.' || cleaned === '..') ? 'agent' : cleaned;
+}}
+
+function strictModeAllowlist() {{
+  const keys = CONFIG.proxy && Array.isArray(CONFIG.proxy.env_keys) && CONFIG.proxy.env_keys.length
+    ? CONFIG.proxy.env_keys
+    : DEFAULT_ENV_ALLOWLIST;
+  return keys.filter(Boolean);
+}}
+
+function mergeEnvAllowlist(agent, keys) {{
+  const seen = new Set();
+  const next = [];
+  for (const key of (agent.env_allowlist || []).concat(keys || [])) {{
+    const value = String(key || '').trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    next.push(value);
+  }}
+  agent.env_allowlist = next;
 }}
 
 function buildEnvSection(host, agent) {{
@@ -1943,7 +2527,14 @@ function uniqueName(base) {{
 }}
 
 function addNewAgent() {{
-  const fresh = ensureAgentShape({{ name: uniqueName('new-agent'), cli_type: '' }});
+  const name = uniqueName('new-agent');
+  const fresh = ensureAgentShape({{
+    name,
+    cli_type: '',
+    env_mode: 'strict',
+    env_allowlist: strictModeAllowlist(),
+  }});
+  fresh.config_dir = suggestedConfigDir(fresh);
   CONFIG.agents.push(fresh);
   SELECTED_AGENT_INDEX = CONFIG.agents.length - 1;
   refreshAgentList();
@@ -2036,13 +2627,15 @@ function renderCliAliases() {{
     existing[row.dataset.rowCli] = row.querySelector('[data-alias-input]').value;
   }});
   list.innerHTML = '';
-  // invert config map: alias -> cli  =>  cli -> alias
-  const cliToAlias = {{}};
+  // invert config map: alias -> cli  =>  cli -> aliases[]
+  const cliToAliases = {{}};
   for (const [alias, cli] of Object.entries(CONFIG.cli_type_aliases || {{}})) {{
-    if (cli && !cliToAlias[cli]) cliToAlias[cli] = alias;
+    if (!cli) continue;
+    if (!cliToAliases[cli]) cliToAliases[cli] = [];
+    cliToAliases[cli].push(alias);
   }}
   for (const def of CLI_DEFS) {{
-    const cur = existing[def.id] != null ? existing[def.id] : (cliToAlias[def.id] || '');
+    const cur = existing[def.id] != null ? existing[def.id] : ((cliToAliases[def.id] || []).join('\n'));
     const row = document.createElement('div');
     row.className = 'mapping-row';
     row.dataset.rowCli = def.id;
@@ -2057,21 +2650,21 @@ function renderCliAliases() {{
     label.appendChild(labelStrong);
     label.appendChild(labelMuted);
 
-    const input = document.createElement('input');
-    input.type = 'text';
+    const input = document.createElement('textarea');
     input.value = cur;
     input.placeholder = t('ph.alias');
     input.dataset.aliasInput = '1';
-    input.maxLength = 16;
+    input.rows = Math.max(2, lines(cur).length || 2);
 
     input.addEventListener('input', () => {{
       if (!CONFIG.cli_type_aliases) CONFIG.cli_type_aliases = {{}};
-      const v = input.value.trim();
       // Remove any old alias for this cli_type
       for (const [k2, v2] of Object.entries(CONFIG.cli_type_aliases)) {{
         if (v2 === def.id) delete CONFIG.cli_type_aliases[k2];
       }}
-      if (v) CONFIG.cli_type_aliases[v] = def.id;
+      for (const alias of lines(input.value)) {{
+        CONFIG.cli_type_aliases[alias] = def.id;
+      }}
     }});
 
     row.appendChild(label);
@@ -2094,8 +2687,9 @@ function readCliAliases() {{
   const out = {{}};
   document.querySelectorAll('#cli-aliases-list [data-row-cli]').forEach(row => {{
     const cli = row.dataset.rowCli;
-    const alias = row.querySelector('[data-alias-input]').value.trim();
-    if (cli && alias) out[alias] = cli;
+    for (const alias of lines(row.querySelector('[data-alias-input]').value)) {{
+      if (cli && alias) out[alias] = cli;
+    }}
   }});
   return out;
 }}
@@ -2176,8 +2770,11 @@ function collectConfig() {{
       command: a.command || null,
       path: a.path || null,
       model: a.model || null,
+      effort: supportsEffort(a) ? (a.effort || null) : null,
       default_timeout: a.default_timeout || null,
       config_dir: a.config_dir || null,
+      env_mode: a.env_mode || 'inherit',
+      env_allowlist: a.env_allowlist || [],
       env: a.env || {{}},
       args_strategy: a.args_strategy || 'builtin',
       args: a.args || [],
@@ -2202,7 +2799,8 @@ function validateBeforeSave(cfg) {{
 }}
 
 document.getElementById('save-btn').addEventListener('click', async () => {{
-  const cfg = collectConfig();
+  const cfg = await configFromActiveEditor();
+  if (!cfg) return;
   if (!validateBeforeSave(cfg)) return;
   try {{
     const r = await fetch('/api/config', {{ method: 'POST', headers: {{ 'Content-Type': 'application/json' }}, body: JSON.stringify(cfg) }});
@@ -2229,6 +2827,7 @@ async function doReload() {{
 function mergeConfig(fresh) {{
   CONFIG = fresh;
   CONFIG.agents = (CONFIG.agents || []).map(ensureAgentShape);
+  RAW_TOML_DIRTY = false;
   // Keep the same agent selected if its name still exists
   if (SELECTED_AGENT_INDEX != null && SELECTED_AGENT_INDEX >= 0 && SELECTED_AGENT_INDEX < CONFIG.agents.length) {{
     // fine, keep it
@@ -2273,6 +2872,9 @@ document.getElementById('proxy-env-keys').addEventListener('input', e => {{
   if (!CONFIG.proxy) CONFIG.proxy = {{ enabled: true, env_keys: [] }};
   CONFIG.proxy.env_keys = lines(e.target.value);
 }});
+
+document.getElementById('sync-to-form-btn').addEventListener('click', syncToForm);
+document.getElementById('sync-from-form-btn').addEventListener('click', () => syncFromForm(false));
 
 applyTheme();
 renderAll();

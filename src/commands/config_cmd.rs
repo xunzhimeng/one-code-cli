@@ -258,7 +258,8 @@ pub fn config_html(
         default_profile: config.default_profile.clone(),
         init_command: "occ config init --user".to_string(),
     };
-    config_ui::serve_form(&config, &save_path, port, open_browser, metadata)?;
+    let initial_file = editable_config_file_for_path(&save_path)?;
+    config_ui::serve_form(&initial_file, &save_path, port, open_browser, metadata)?;
     Ok(())
 }
 
@@ -270,8 +271,8 @@ pub fn config_export_html(
 ) -> OccResult<()> {
     let cwd = current_cwd()?;
     let config = config::load(config_arg, &cwd)?;
-    let initial = config::editable_config_toml(&config)?;
     let recommended_path = recommended_config_path(&config, &cwd, target)?;
+    let initial = editable_config_toml_for_path(&recommended_path)?;
     let target_name = match target {
         ConfigTarget::User => "user",
         ConfigTarget::Project => "project",
@@ -319,4 +320,66 @@ fn recommended_config_path(
             .cloned()
             .unwrap_or_else(|| config::default_project_config_path(cwd))),
     }
+}
+
+pub fn config_settings(
+    config_arg: Option<&PathBuf>,
+    args: crate::cli::SettingsArgs,
+) -> OccResult<()> {
+    if args.server {
+        if args.output.is_some() {
+            return Err(OccError::new(
+                "invalid_argument",
+                "--output is only used for static HTML export. In server mode, choose the config with --target or global --config.",
+            ));
+        }
+        let cwd = current_cwd()?;
+        let config = config::load(config_arg, &cwd)?;
+        let recommended_path = recommended_config_path(&config, &cwd, args.target)?;
+        let save_path = recommended_path;
+        let target_name = match args.target {
+            ConfigTarget::User => "user",
+            ConfigTarget::Project => "project",
+            ConfigTarget::Loaded => "loaded",
+        };
+        let init_command = match args.target {
+            ConfigTarget::User => "occ config init --user --force",
+            ConfigTarget::Project | ConfigTarget::Loaded => "occ config init --project --force",
+        };
+        let metadata = config_ui::ConfigHtmlMetadata {
+            cwd: cwd.clone(),
+            target: target_name.to_string(),
+            recommended_path: save_path.clone(),
+            loaded_paths: config.loaded_paths.clone(),
+            search_paths: config.search_paths.clone(),
+            doc_root: config.resolved_doc_root(&cwd, None),
+            default_profile: config.default_profile.clone(),
+            init_command: init_command.to_string(),
+        };
+        let initial_file = editable_config_file_for_path(&save_path)?;
+        config_ui::serve_form(
+            &initial_file,
+            &save_path,
+            args.port,
+            !args.no_open,
+            metadata,
+        )?;
+    } else {
+        config_export_html(config_arg, args.output, args.target, !args.no_open)?;
+    }
+    Ok(())
+}
+
+fn editable_config_file_for_path(path: &Path) -> OccResult<config::ConfigFile> {
+    config::read_config_file(path)
+}
+
+fn editable_config_toml_for_path(path: &Path) -> OccResult<String> {
+    let file = editable_config_file_for_path(path)?;
+    toml::to_string_pretty(&file).map_err(|error| {
+        OccError::new(
+            "serialization_failed",
+            format!("Failed to serialize config TOML: {}", error),
+        )
+    })
 }

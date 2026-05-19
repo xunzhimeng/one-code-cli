@@ -13,6 +13,8 @@ pub fn runs_list(config_arg: Option<&PathBuf>, limit: usize) -> OccResult<()> {
         "RUN_ID",
         "SESSION_ID",
         "AGENT_ALIAS",
+        "MODEL",
+        "EFFORT",
         "SUCCESS",
         "CREATED_AT",
     ]);
@@ -21,6 +23,8 @@ pub fn runs_list(config_arg: Option<&PathBuf>, limit: usize) -> OccResult<()> {
             entry.run_id,
             entry.session_id,
             entry.profile,
+            entry.model.unwrap_or_else(|| "-".to_string()),
+            entry.effort.unwrap_or_else(|| "-".to_string()),
             entry.success.to_string(),
             entry.created_at.to_string(),
         ]);

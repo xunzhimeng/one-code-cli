@@ -14,6 +14,8 @@ Use this skill when an agent delegates a coding task to another coding-agent CLI
 - Working directory for the delegated task.
 - Task prompt text, unless starting a foreground interactive session.
 - Either an exact agent or a CLI.
+- Optional model override when the user or project requires a specific model.
+- Optional effort override when the user or project requires a specific reasoning level.
 - Whether the user wants supervised foreground execution or automated non-interactive execution.
 
 ## Storage model
@@ -27,12 +29,13 @@ Use this skill when an agent delegates a coding task to another coding-agent CLI
 
 ### Fast path: known environment
 
-Use this when `occ` is already known to work and the user or project specifies the target/CLI.
+Use this when `occ` is already known to work and the user or project specifies the agent/CLI.
 
 1. State the intended `cwd`, agent/CLI, mode, prompt source, `doc_root`, and whether files may be modified.
+   Include the model and effort overrides when they are requested.
 2. For non-interactive work, run `occ run ... --dry-run --output json` first when command shape, permissions, or prompt routing need confirmation.
 3. Run the task only after the parameters are clear.
-4. Parse JSON output, then read `result_path` first.
+4. Parse JSON output, note `model` / `model_source` and `effort` / `effort_source` when present, then read `result_path` first.
 5. Inspect `metadata_path`, `stdout.log`, `stderr.log`, or `events.jsonl` only when the result is missing, incomplete, failed, or ambiguous.
 
 Do not run `occ doctor`, `occ agents list`, or `occ clis list` on every invocation when the environment is already known.
@@ -50,6 +53,8 @@ Use this when agent/CLI selection is unclear, `occ` failed, config may be stale,
 
 - If the user wants supervision, default to foreground interactive mode. `occ run` without `--prompt`, `--prompt-file`, or `--stdin` enters interactive mode; `--interactive` can be used explicitly.
 - Do not launch long non-interactive runs silently. First show or dry-run the command parameters: `cwd`, agent/CLI, prompt source, `doc_root`, and permission posture.
+- If a specific model matters, include `--model <name>` in the shown command.
+- If a specific reasoning level matters, include `--effort <level>` in the shown command.
 - Use non-interactive background-style execution only after parameters are set, the task needs automation, or the user accepts that the child CLI TUI will not be visible.
 - For supervised non-interactive runs, pass `--stream` so child stdout/stderr is mirrored to parent stderr while JSON remains on stdout.
 - By default, do not add `--timeout`; add it only when the user or project requires a hard limit.
@@ -69,6 +74,18 @@ Non-interactive with a short prompt:
 occ run --agent <agent> --cwd <cwd> --prompt "<task prompt>" --non-interactive --stream --output json
 ```
 
+Add a model override when needed:
+
+```bash
+occ run --agent <agent> --cwd <cwd> --prompt "<task prompt>" --model <model> --non-interactive --stream --output json
+```
+
+Add an effort override when needed:
+
+```bash
+occ run --agent <agent> --cwd <cwd> --prompt "<task prompt>" --effort <level> --non-interactive --stream --output json
+```
+
 Non-interactive with a longer inline prompt:
 
 ```bash
@@ -82,6 +99,8 @@ If the agent is unknown but CLI is known:
 ```bash
 occ run --cli claude --cwd <cwd> --prompt "<task prompt>" --non-interactive --stream --output json
 ```
+
+The same pattern works with `--model <model>` and `--effort <level>` when the delegated task must target a specific model or reasoning level.
 
 Add `--timeout <duration>` only when a hard execution cap is needed.
 
@@ -102,6 +121,10 @@ Expected JSON output:
   "session_id": "sess_...",
   "agent": "claude",
   "cli": "claude",
+  "model": "gpt-5.4",
+  "model_source": "cli-arg",
+  "effort": "xhigh",
+  "effort_source": "cli-arg",
   "cwd": "E:/project/repo",
   "result_path": "C:/Users/user/.occ/runs/run_.../result.md",
   "metadata_path": "C:/Users/user/.occ/runs/run_.../run.toml",
