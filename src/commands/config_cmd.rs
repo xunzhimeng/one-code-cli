@@ -326,47 +326,47 @@ pub fn config_settings(
     config_arg: Option<&PathBuf>,
     args: crate::cli::SettingsArgs,
 ) -> OccResult<()> {
-    if args.server {
-        if args.output.is_some() {
+    if args.output.is_some() {
+        if args.server {
             return Err(OccError::new(
                 "invalid_argument",
-                "--output is only used for static HTML export. In server mode, choose the config with --target or global --config.",
+                "--server cannot be combined with --output. Omit --output to open the live settings UI.",
             ));
         }
-        let cwd = current_cwd()?;
-        let config = config::load(config_arg, &cwd)?;
-        let recommended_path = recommended_config_path(&config, &cwd, args.target)?;
-        let save_path = recommended_path;
-        let target_name = match args.target {
-            ConfigTarget::User => "user",
-            ConfigTarget::Project => "project",
-            ConfigTarget::Loaded => "loaded",
-        };
-        let init_command = match args.target {
-            ConfigTarget::User => "occ config init --user --force",
-            ConfigTarget::Project | ConfigTarget::Loaded => "occ config init --project --force",
-        };
-        let metadata = config_ui::ConfigHtmlMetadata {
-            cwd: cwd.clone(),
-            target: target_name.to_string(),
-            recommended_path: save_path.clone(),
-            loaded_paths: config.loaded_paths.clone(),
-            search_paths: config.search_paths.clone(),
-            doc_root: config.resolved_doc_root(&cwd, None),
-            default_profile: config.default_profile.clone(),
-            init_command: init_command.to_string(),
-        };
-        let initial_file = editable_config_file_for_path(&save_path)?;
-        config_ui::serve_form(
-            &initial_file,
-            &save_path,
-            args.port,
-            !args.no_open,
-            metadata,
-        )?;
-    } else {
         config_export_html(config_arg, args.output, args.target, !args.no_open)?;
+        return Ok(());
     }
+
+    let cwd = current_cwd()?;
+    let config = config::load(config_arg, &cwd)?;
+    let save_path = recommended_config_path(&config, &cwd, args.target)?;
+    let target_name = match args.target {
+        ConfigTarget::User => "user",
+        ConfigTarget::Project => "project",
+        ConfigTarget::Loaded => "loaded",
+    };
+    let init_command = match args.target {
+        ConfigTarget::User => "occ config init --user --force",
+        ConfigTarget::Project | ConfigTarget::Loaded => "occ config init --project --force",
+    };
+    let metadata = config_ui::ConfigHtmlMetadata {
+        cwd: cwd.clone(),
+        target: target_name.to_string(),
+        recommended_path: save_path.clone(),
+        loaded_paths: config.loaded_paths.clone(),
+        search_paths: config.search_paths.clone(),
+        doc_root: config.resolved_doc_root(&cwd, None),
+        default_profile: config.default_profile.clone(),
+        init_command: init_command.to_string(),
+    };
+    let initial_file = editable_config_file_for_path(&save_path)?;
+    config_ui::serve_form(
+        &initial_file,
+        &save_path,
+        args.port,
+        !args.no_open,
+        metadata,
+    )?;
     Ok(())
 }
 

@@ -1610,6 +1610,85 @@ args_strategy = "builtin"
 }
 
 #[test]
+fn settings_without_output_serves_form_ui_by_default() {
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::net::TcpStream;
+    use std::process::Stdio;
+
+    fn http_request(url: &str, method: &str, path: &str) -> String {
+        let address = url
+            .trim()
+            .strip_prefix("http://")
+            .unwrap()
+            .trim_end_matches('/');
+        let mut stream = TcpStream::connect(address).unwrap();
+        write!(
+            stream,
+            "{} {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
+            method, path, address
+        )
+        .unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        response
+    }
+
+    let dir = temp_dir("settings-default-form-ui");
+    let config = dir.join("config-settings-default-form.toml");
+    fs::write(
+        &config,
+        r#"version = 1
+
+[[agents]]
+name = "project-agent"
+cli_type = "codex"
+args_strategy = "builtin"
+"#,
+    )
+    .unwrap();
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_occ"))
+        .arg("--config")
+        .arg(&config)
+        .arg("settings")
+        .arg("--target")
+        .arg("loaded")
+        .arg("--no-open")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let stdout = child.stdout.take().unwrap();
+    let mut reader = BufReader::new(stdout);
+    let mut url = String::new();
+    for _ in 0..4 {
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        if let Some(value) = line.strip_prefix("ui: ") {
+            url = value.trim().to_string();
+            break;
+        }
+    }
+    assert!(!url.is_empty(), "settings server did not print a UI URL");
+
+    let page = http_request(&url, "GET", "/");
+    assert!(page.contains("raw-toml-textarea"));
+    assert!(page.contains("agent-list"));
+    assert!(page.contains("project-agent"));
+    assert!(!page.contains("textarea id=\"toml\""));
+
+    let _ = http_request(&url, "POST", "/api/shutdown");
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "occ failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn agents_add_writes_isolated_agent_config() {
     let dir = temp_dir("agents-add");
     let config = dir.join("config-add.toml");

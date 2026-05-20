@@ -330,6 +330,8 @@ prompt_via = "stdin"
 - `occ run --agent deepseek-cc ...`：精确选择一个 agent。
 - `occ run --agents claude-cc,deepseek-cc ...`：并行精确选择多个 agent。
 - `occ run --cli claude ...`：按 `cli_type_defaults.claude` 选择默认 agent；未设置时使用第一个匹配 `cli_type = "claude"` 的 agent。
+- Agent 别名是某个具体 agent 的备用名字，用于 `--agent`、`--agents` 和 `/agent`。
+- CLI 类型别名是 CLI 类型的备用名字，用于 `--cli` 和 `/cli`；`codex = "codex"` 这种原名别名是冗余的。
 
 resume 会尽量使用各 CLI 的原生机制。Claude Code 与 Gemini 新会话会收到 occ 生成的原生 UUID，后续 `--resume` 可以回到同一个 CLI 原生 session；Codex 和 opencode 使用当前 CLI 的 resume/continue 命令。`--session <id>` 始终绑定该 session 原始 agent；传入冲突的 `--agent` 或 `--cli` 会返回 `session_agent_mismatch`。
 
@@ -347,9 +349,12 @@ occ config show
 ```powershell
 occ config show
 occ config validate
-occ config ui
+occ settings
+occ settings --output config-ui.html --no-open
 occ config export-html
 ```
+
+`occ settings` 默认通过本地 server 打开完整的表单式 settings UI，这样保存、重新加载、TOML 双向同步都能像交互编辑器一样工作。只有需要导出简单的独立 TOML HTML 时，再使用 `--output`。
 
 这些容器命令不带子命令时会默认列出内容：
 

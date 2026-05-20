@@ -226,6 +226,8 @@ Selection rules:
 - `occ run --agent deepseek-cc ...` selects one exact agent.
 - `occ run --agents claude-cc,deepseek-cc ...` selects multiple exact agents in parallel.
 - `occ run --cli claude ...` uses `cli_type_defaults.claude`; if unset, it uses the first agent whose `cli_type = "claude"`.
+- Agent aliases are alternate names for one exact agent and work with `--agent`, `--agents`, and `/agent`.
+- CLI type aliases are alternate names for CLI types and work with `--cli` and `/cli`; identity aliases like `codex = "codex"` are redundant.
 
 Resume support uses each CLI's native mechanism when available. Claude Code and Gemini receive a generated native UUID on new runs so later `--resume` can target the same native session; Codex and opencode use their current CLI resume/continue commands. `--session <id>` always stays bound to the session's original agent; passing a conflicting `--agent` or `--cli` returns `session_agent_mismatch`.
 
@@ -241,9 +243,12 @@ occ config show
 ```powershell
 occ config show
 occ config validate
-occ config ui
+occ settings
+occ settings --output config-ui.html --no-open
 occ config export-html
 ```
+
+`occ settings` opens the full form-based settings UI through a local server so save/reload/TOML sync work like the interactive editor. Use `--output` only when you want the simpler standalone TOML HTML export.
 
 Container commands default to list mode when no subcommand is provided:
 

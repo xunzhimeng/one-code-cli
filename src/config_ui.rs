@@ -335,6 +335,19 @@ mod tests {
         assert!(html.contains("supports_effort: true"));
         assert!(html.contains("supportsEffort(agent)"));
     }
+
+    #[test]
+    fn form_html_distinguishes_cli_type_aliases_from_agent_aliases() {
+        let html = form_html("{}", "{}", "{}", Path::new("config.toml"));
+        assert!(html.contains("CLI 类型别名"));
+        assert!(html.contains("occ run --cli"));
+        assert!(html.contains("/cli"));
+        assert!(html.contains("Agent 别名"));
+        assert!(html.contains("--agent"));
+        assert!(html.contains("--agents"));
+        assert!(html.contains("alias === cli"));
+        assert!(html.contains("alias !== cli"));
+    }
 }
 
 fn path_list(paths: &[PathBuf]) -> String {
@@ -1165,6 +1178,7 @@ label {{ display: block; font-size: 12px; color: var(--text-muted); margin-botto
 .mapping-row .mapping-label {{ font-size: 13px; }}
 .mapping-row .mapping-label strong {{ color: var(--text); font-weight: 600; }}
 .mapping-row .mapping-label .muted {{ font-size: 12px; }}
+.mapping-row .mapping-label .field-hint {{ margin-top: 4px; }}
 @media (max-width: 720px) {{ .mapping-row {{ grid-template-columns: 1fr; }} }}
 
 .agents-layout {{
@@ -1396,8 +1410,8 @@ dialog pre {{
     <div class="mapping-table" id="cli-defaults-list"></div>
   </div>
   <div class="card">
-    <div class="card-title"><h2 data-i18n="mapping.aliases">CLI 别名</h2></div>
-    <p class="card-desc muted" data-i18n="mapping.aliases.desc">为每个 CLI 取短别名，例如 <code>c</code> 代表 Claude Code。每行一个，留空则不设别名。</p>
+    <div class="card-title"><h2 data-i18n="mapping.aliases">CLI 类型别名</h2></div>
+    <p class="card-desc muted" data-i18n="mapping.aliases.desc">给 CLI 类型取短名，只用于 <code>occ run --cli</code> 和 <code>/cli</code>。例如 <code>cc</code> 代表 Claude Code；原名 <code>claude</code>、<code>codex</code> 等不需要重复填写。</p>
     <div class="mapping-table" id="cli-aliases-list"></div>
   </div>
 </section>
@@ -1588,15 +1602,17 @@ const I18N = {{
     "ph.proxy_keys": "HTTP_PROXY",
     "ph.cli_select": "选择 CLI",
     "ph.agent_select": "选择 agent",
-    "ph.alias": "别名，每行一个（例如 c）",
+    "ph.alias": "别名，每行一个（例如 ds）",
+    "ph.cli_alias": "CLI 类型别名，每行一个（例如 cc）",
     "ph.agent_name": "例如：claude-anthropic",
     "ph.command": "可选，留空使用默认",
     "ph.kv_key": "key",
     "ph.kv_value": "value",
     "mapping.defaults": "CLI 默认 agent",
     "mapping.defaults.desc": "每种 CLI（Claude Code / Codex 等）使用 <code>--cli</code> 时默认调用的 agent。一个 CLI 可以有多个 agent，例如 Claude Code 同时配置 Anthropic 官方接口和 DeepSeek 兼容接口的 agent。",
-    "mapping.aliases": "CLI 别名",
-    "mapping.aliases.desc": "为每个 CLI 取短别名，例如 <code>c</code> 代表 Claude Code。每行一个，留空则不设别名。",
+    "mapping.aliases": "CLI 类型别名",
+    "mapping.aliases.desc": "给 CLI 类型取短名，只用于 <code>occ run --cli</code> 和 <code>/cli</code>。例如 <code>cc</code> 代表 Claude Code；原名 <code>claude</code>、<code>codex</code> 等不需要重复填写。",
+    "mapping.aliases.row_hint": "用于 --cli 和 /cli；原名会自动忽略。",
     "mapping.no_default": "（不指定）",
     "agents.title": "Agents",
     "agents.desc": "同一个 CLI 可以有多个 agent，例如 Claude Code 同时用 Anthropic 官方和 DeepSeek 兼容后端。在 config_dir 和 env 中配置每个 agent 自己的系统目录、API key / base URL / model。",
@@ -1613,7 +1629,8 @@ const I18N = {{
     "agent.section.advanced": "高级 / 透传参数",
     "agent.name": "名称 *",
     "agent.cli_type": "CLI 类型 *",
-    "agent.aliases": "别名（每行一个）",
+    "agent.aliases": "Agent 别名（每行一个）",
+    "agent.aliases.hint": "用于 --agent、--agents 和 /agent，精确选择这个 agent。",
     "agent.command": "命令名称（例如 claude）",
     "agent.model": "主模型名称 (model)",
     "agent.effort": "推理/思考强度 (effort)",
@@ -1661,7 +1678,7 @@ const I18N = {{
     "msg.reload_failed": "重新加载失败",
     "msg.reload_failed_e": "重新加载失败：",
     "msg.reloaded": "已重新加载。",
-    "msg.stop_confirm": "停止本地配置服务？可以再次运行 `occ config html` 重新启动。",
+    "msg.stop_confirm": "停止本地配置服务？可以再次运行 `occ settings` 重新启动。",
     "msg.stopped": "服务已停止，可以关闭此页面。",
     "msg.no_meta": "（无上下文信息）",
     "msg.context.cwd": "当前目录",
@@ -1716,15 +1733,17 @@ const I18N = {{
     "ph.proxy_keys": "HTTP_PROXY",
     "ph.cli_select": "Select CLI",
     "ph.agent_select": "Select agent",
-    "ph.alias": "Aliases, one per line, e.g. c",
+    "ph.alias": "Aliases, one per line, e.g. ds",
+    "ph.cli_alias": "CLI type aliases, one per line, e.g. cc",
     "ph.agent_name": "e.g. claude-anthropic",
     "ph.command": "Optional, blank uses default",
     "ph.kv_key": "key",
     "ph.kv_value": "value",
     "mapping.defaults": "Default agent per CLI",
     "mapping.defaults.desc": "Which agent each CLI calls by default with <code>--cli</code>. A CLI can have many agents, e.g. Claude Code with Anthropic official and Claude Code with a DeepSeek-compatible proxy.",
-    "mapping.aliases": "CLI aliases",
-    "mapping.aliases.desc": "Short aliases for each CLI, one per line, e.g. <code>c</code> for Claude Code. Leave blank to set no alias.",
+    "mapping.aliases": "CLI type aliases",
+    "mapping.aliases.desc": "Short names for CLI types only, used by <code>occ run --cli</code> and <code>/cli</code>. For example, <code>cc</code> means Claude Code; canonical names like <code>claude</code> and <code>codex</code> do not need to be repeated.",
+    "mapping.aliases.row_hint": "Used by --cli and /cli; canonical names are ignored.",
     "mapping.no_default": "(unset)",
     "agents.title": "Agents",
     "agents.desc": "One CLI can have multiple agents (e.g. Claude Code with Anthropic and Claude Code with a DeepSeek-compatible proxy). Use config_dir and env to set per-agent system config, API key / base URL / model.",
@@ -1741,7 +1760,8 @@ const I18N = {{
     "agent.section.advanced": "Advanced / passthrough",
     "agent.name": "Name *",
     "agent.cli_type": "CLI type *",
-    "agent.aliases": "Aliases (one per line)",
+    "agent.aliases": "Agent aliases (one per line)",
+    "agent.aliases.hint": "Used by --agent, --agents, and /agent to select this exact agent.",
     "agent.command": "command name (e.g. claude)",
     "agent.model": "model (agent-side label)",
     "agent.effort": "effort (reasoning level)",
@@ -1789,7 +1809,7 @@ const I18N = {{
     "msg.reload_failed": "Reload failed.",
     "msg.reload_failed_e": "Reload failed: ",
     "msg.reloaded": "Reloaded.",
-    "msg.stop_confirm": "Stop the local config server? Restart with `occ config html`.",
+    "msg.stop_confirm": "Stop the local config server? Restart with `occ settings`.",
     "msg.stopped": "Server stopped. You can close this tab.",
     "msg.no_meta": "(no context)",
     "msg.context.cwd": "cwd",
@@ -2101,7 +2121,7 @@ function buildAgentEditor(agent) {{
   wrap.appendChild(sectionTitle(t('agent.section.basic')));
   const basic = grid();
   basic.appendChild(field(t('agent.cli_type'), buildCliTypeSelect(agent)));
-  basic.appendChild(field(t('agent.aliases'), buildTextarea(agent, 'aliases', {{ asLines: true }})));
+  basic.appendChild(field(t('agent.aliases'), buildTextarea(agent, 'aliases', {{ asLines: true }}), t('agent.aliases.hint')));
   wrap.appendChild(basic);
 
   // --- section: command ---
@@ -2183,12 +2203,18 @@ function grid() {{
   el.className = 'grid';
   return el;
 }}
-function field(labelText, control) {{
+function field(labelText, control, hintText) {{
   const w = document.createElement('div');
   const lab = document.createElement('label');
   lab.textContent = labelText;
   w.appendChild(lab);
   w.appendChild(control);
+  if (hintText) {{
+    const hint = document.createElement('div');
+    hint.className = 'field-hint';
+    hint.textContent = hintText;
+    w.appendChild(hint);
+  }}
   return w;
 }}
 
@@ -2627,10 +2653,11 @@ function renderCliAliases() {{
     existing[row.dataset.rowCli] = row.querySelector('[data-alias-input]').value;
   }});
   list.innerHTML = '';
-  // invert config map: alias -> cli  =>  cli -> aliases[]
+  // invert config map: alias -> cli  =>  cli -> aliases[]; identity aliases are redundant.
   const cliToAliases = {{}};
   for (const [alias, cli] of Object.entries(CONFIG.cli_type_aliases || {{}})) {{
     if (!cli) continue;
+    if (alias === cli) continue;
     if (!cliToAliases[cli]) cliToAliases[cli] = [];
     cliToAliases[cli].push(alias);
   }}
@@ -2647,12 +2674,16 @@ function renderCliAliases() {{
     const labelMuted = document.createElement('span');
     labelMuted.className = 'muted';
     labelMuted.textContent = ' (' + def.id + ')';
+    const labelHint = document.createElement('div');
+    labelHint.className = 'field-hint';
+    labelHint.textContent = t('mapping.aliases.row_hint');
     label.appendChild(labelStrong);
     label.appendChild(labelMuted);
+    label.appendChild(labelHint);
 
     const input = document.createElement('textarea');
     input.value = cur;
-    input.placeholder = t('ph.alias');
+    input.placeholder = t('ph.cli_alias');
     input.dataset.aliasInput = '1';
     input.rows = Math.max(2, lines(cur).length || 2);
 
@@ -2663,6 +2694,7 @@ function renderCliAliases() {{
         if (v2 === def.id) delete CONFIG.cli_type_aliases[k2];
       }}
       for (const alias of lines(input.value)) {{
+        if (alias === def.id) continue;
         CONFIG.cli_type_aliases[alias] = def.id;
       }}
     }});
@@ -2688,7 +2720,7 @@ function readCliAliases() {{
   document.querySelectorAll('#cli-aliases-list [data-row-cli]').forEach(row => {{
     const cli = row.dataset.rowCli;
     for (const alias of lines(row.querySelector('[data-alias-input]').value)) {{
-      if (cli && alias) out[alias] = cli;
+      if (cli && alias && alias !== cli) out[alias] = cli;
     }}
   }});
   return out;

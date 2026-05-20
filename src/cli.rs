@@ -526,15 +526,22 @@ pub struct SettingsArgs {
     #[arg(long, value_enum, default_value_t = ConfigTarget::User, help = "Config target: user, project, or loaded")]
     pub target: ConfigTarget,
 
-    #[arg(long, help = "Use local server mode instead of static HTML mode")]
+    #[arg(
+        long,
+        help = "Compatibility flag; settings uses local server mode unless --output is set"
+    )]
     pub server: bool,
 
-    #[arg(long, help = "Bind port for server mode", value_name = "PORT")]
+    #[arg(
+        long,
+        help = "Bind port for the local settings server",
+        value_name = "PORT"
+    )]
     pub port: Option<u16>,
 
     #[arg(
         long,
-        help = "Output path for static HTML export (not used with --server)"
+        help = "Export static TOML config HTML instead of opening the live settings server"
     )]
     pub output: Option<PathBuf>,
 
