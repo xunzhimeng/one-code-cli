@@ -119,6 +119,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Verify release version
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const expected = process.env.GITHUB_REF_NAME.replace(/^v/, '');
+          const pkg = require('./package.json').version;
+          const cargo = fs.readFileSync('Cargo.toml', 'utf8').match(/^version\s*=\s*"([^"]+)"/m)?.[1];
+          const lock = fs.readFileSync('Cargo.lock', 'utf8').match(/name = "one-code-cli"\nversion = "([^"]+)"/)?.[1];
+          const versions = { packageJson: pkg, cargoToml: cargo, cargoLock: lock };
+          for (const [name, version] of Object.entries(versions)) {
+            if (version !== expected) {
+              console.error(`${name} version ${version} does not match tag ${process.env.GITHUB_REF_NAME}`);
+              process.exit(1);
+            }
+          }
+          NODE
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:

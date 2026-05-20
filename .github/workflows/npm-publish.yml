@@ -16,6 +16,29 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Verify package versions
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const pkg = require('./package.json').version;
+          const cargo = fs.readFileSync('Cargo.toml', 'utf8').match(/^version\s*=\s*"([^"]+)"/m)?.[1];
+          const lock = fs.readFileSync('Cargo.lock', 'utf8').match(/name = "one-code-cli"\nversion = "([^"]+)"/)?.[1];
+          const versions = { cargoToml: cargo, cargoLock: lock };
+          for (const [name, version] of Object.entries(versions)) {
+            if (version !== pkg) {
+              console.error(`${name} version ${version} does not match package.json ${pkg}`);
+              process.exit(1);
+            }
+          }
+          if (process.env.GITHUB_REF_TYPE === 'tag') {
+            const expected = process.env.GITHUB_REF_NAME.replace(/^v/, '');
+            if (pkg !== expected) {
+              console.error(`package.json version ${pkg} does not match tag ${process.env.GITHUB_REF_NAME}`);
+              process.exit(1);
+            }
+          }
+          NODE
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
