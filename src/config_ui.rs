@@ -1079,9 +1079,10 @@ button.small {{ padding: 6px 12px; font-size: 12px; border-radius: 8px; }}
 input[type=text], input[type=number], input[type=password], textarea, select {{
   width: 100%; box-sizing: border-box;
   border: 1px solid var(--border-strong); background: var(--input-bg); color: var(--text);
-  padding: 10px 14px; border-radius: 10px;
+  padding: 10px 14px; border-radius: 8px;
   font-family: var(--font-mono); font-size: 13px;
   transition: all 0.2s;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.03);
 }}
 input[type=text]:focus, input[type=number]:focus, input[type=password]:focus, textarea:focus, select:focus {{
   outline: none; border-color: var(--primary); box-shadow: var(--focus);
@@ -1239,12 +1240,19 @@ label {{ display: block; font-size: 12px; color: var(--text-muted); margin-botto
   flex-direction: column; gap: 14px;
 }}
 .agent-section-title {{
-  font-size: 13px; font-weight: 700; color: var(--text);
-  margin: 20px 0 10px; padding-top: 18px;
-  border-top: 1px dashed var(--border);
-  text-transform: uppercase; letter-spacing: 0.5px;
+  display: flex; align-items: center; gap: 10px;
+  font-size: 15px; font-weight: 700; color: var(--text);
+  margin: 36px 0 20px; padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  letter-spacing: 0.5px;
 }}
-.agent-section-title:first-of-type {{ border-top: 0; padding-top: 0; }}
+.agent-section-title:first-of-type {{ margin-top: 0; }}
+.step-num {{
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: 50%;
+  background: var(--primary-soft); color: var(--primary);
+  font-size: 13px; font-weight: 800;
+}}
 .secret-row {{ display: flex; gap: 8px; align-items: center; }}
 .secret-row input {{ flex: 1; }}
 .checkbox-row {{
@@ -2259,12 +2267,12 @@ function buildAgentEditor(agent) {{
 
   // --- header row ---
   const head = document.createElement('div');
-  head.style.cssText = 'display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;';
+  head.style.cssText = 'display:flex;align-items:center;gap:10px;margin-bottom:24px;padding-bottom:20px;border-bottom:1px solid var(--border);flex-wrap:wrap;';
   const nameInput = document.createElement('input');
   nameInput.type = 'text';
   nameInput.value = agent.name || '';
   nameInput.placeholder = t('ph.agent_name');
-  nameInput.style.cssText = 'flex:1;min-width:200px;font-weight:600;font-size:15px;';
+  nameInput.style.cssText = 'flex:1;min-width:200px;font-weight:700;font-size:18px;border-color:transparent;background:transparent;box-shadow:none;padding:8px 12px;margin-left:-12px;';
   nameInput.addEventListener('input', () => {{
     const previousSuggestedDir = suggestedConfigDir(agent);
     agent.name = nameInput.value.trim();
@@ -2308,7 +2316,7 @@ function buildAgentEditor(agent) {{
   wrap.appendChild(head);
 
   // --- section: basics ---
-  wrap.appendChild(sectionTitle(t('agent.section.basic')));
+  wrap.appendChild(sectionTitle(t('agent.section.basic'), '1'));
   const basic = grid();
   basic.appendChild(field(t('agent.cli_type'), buildCliTypeSelect(agent)));
   basic.appendChild(field(t('agent.aliases'), buildTextarea(agent, 'aliases', {{ asLines: true }}), t('agent.aliases.hint')));
@@ -2321,7 +2329,7 @@ function buildAgentEditor(agent) {{
   wrap.appendChild(basic);
 
   // --- section: command ---
-  wrap.appendChild(sectionTitle(t('agent.section.command')));
+  wrap.appendChild(sectionTitle(t('agent.section.command'), '2'));
   const cmd = grid();
   cmd.appendChild(field(t('agent.command'), buildText(agent, 'command', {{ placeholder: t('ph.command') }})));
   cmd.appendChild(field(t('agent.path'), buildText(agent, 'path')));
@@ -2330,22 +2338,22 @@ function buildAgentEditor(agent) {{
   // --- section: CLI system isolation ---
   const systemHost = document.createElement('div');
   wrap.appendChild(systemHost);
-  buildSystemSection(systemHost, agent);
+  buildSystemSection(systemHost, agent, '3');
 
   // --- section: env ---
   const envHost = document.createElement('div');
   wrap.appendChild(envHost);
-  buildEnvSection(envHost, agent);
+  buildEnvSection(envHost, agent, '4');
 
   // --- section: advanced ---
   const advWrap = document.createElement('details');
-  advWrap.style.cssText = 'margin-top:18px;padding:0;border:1px dashed var(--border);border-radius:8px;';
+  advWrap.style.cssText = 'margin-top:32px;padding:0;border:1px solid var(--border);border-radius:12px;background:var(--surface-alt);';
   const advSummary = document.createElement('summary');
-  advSummary.style.cssText = 'cursor:pointer;padding:10px 14px;font-weight:600;font-size:13px;color:var(--text);';
+  advSummary.style.cssText = 'cursor:pointer;padding:14px 16px;font-weight:600;font-size:14px;color:var(--text);';
   advSummary.textContent = t('agent.section.advanced');
   advWrap.appendChild(advSummary);
   const advBody = document.createElement('div');
-  advBody.style.cssText = 'padding:14px;border-top:1px dashed var(--border);';
+  advBody.style.cssText = 'padding:20px;border-top:1px solid var(--border);background:var(--surface);border-radius:0 0 12px 12px;';
   const adv = grid();
   adv.appendChild(field(t('agent.default_timeout'), buildText(agent, 'default_timeout')));
   adv.appendChild(field(t('agent.args_strategy'), buildSelect(agent, 'args_strategy', [
@@ -2382,10 +2390,14 @@ function buildAgentEditor(agent) {{
   return wrap;
 }}
 
-function sectionTitle(text) {{
+function sectionTitle(text, stepNum = null) {{
   const el = document.createElement('div');
   el.className = 'agent-section-title';
-  el.textContent = text;
+  if (stepNum) {{
+    el.innerHTML = '<span class="step-num">' + stepNum + '</span> ' + escape(text);
+  }} else {{
+    el.textContent = text;
+  }}
   return el;
 }}
 function grid() {{
@@ -2496,9 +2508,9 @@ const DEFAULT_ENV_ALLOWLIST = [
   'no_proxy',
 ];
 
-function buildSystemSection(host, agent) {{
+function buildSystemSection(host, agent, stepNum = null) {{
   host.innerHTML = '';
-  host.appendChild(sectionTitle(t('agent.section.system')));
+  host.appendChild(sectionTitle(t('agent.section.system'), stepNum));
   const def = CLI_DEFS_BY_ID[agent.cli_type];
   const mode = agent.config_dir ? 'isolated' : 'default';
   const g = grid();
@@ -2605,9 +2617,9 @@ function mergeEnvAllowlist(agent, keys) {{
   agent.env_allowlist = next;
 }}
 
-function buildEnvSection(host, agent) {{
+function buildEnvSection(host, agent, stepNum = null) {{
   host.innerHTML = '';
-  host.appendChild(sectionTitle(t('agent.section.env')));
+  host.appendChild(sectionTitle(t('agent.section.env'), stepNum));
   const def = CLI_DEFS_BY_ID[agent.cli_type];
   const detected = (DETECTED && agent.cli_type) ? (DETECTED[agent.cli_type] || null) : null;
   if (detected && detected.source_path) {{
