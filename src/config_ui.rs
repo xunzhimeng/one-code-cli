@@ -334,6 +334,22 @@ mod tests {
         let html = form_html("{}", "{}", "{}", Path::new("config.toml"));
         assert!(html.contains("supports_effort: true"));
         assert!(html.contains("supportsEffort(agent)"));
+        assert!(html.contains("effort_options: ['', 'minimal', 'low', 'medium', 'high']"));
+        assert!(html.contains("buildEffortField(agent)"));
+    }
+
+    #[test]
+    fn form_html_includes_cli_specific_provider_settings() {
+        let html = form_html("{}", "{}", "{}", Path::new("config.toml"));
+        assert!(html.contains("ANTHROPIC_DEFAULT_SONNET_MODEL"));
+        assert!(html.contains("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"));
+        assert!(html.contains("CODEX_MODEL_PROVIDER"));
+        assert!(html.contains("CODEX_PROVIDER_ENV_KEY"));
+        assert!(html.contains("CODEX_WIRE_API"));
+        assert!(html.contains("OPENCODE_PROVIDER_ID"));
+        assert!(html.contains("OPENCODE_PROVIDER_NPM"));
+        assert!(html.contains("OPENCODE_CONFIG"));
+        assert!(html.contains("buildEnvCheckbox"));
     }
 
     #[test]
@@ -1231,6 +1247,75 @@ label {{ display: block; font-size: 12px; color: var(--text-muted); margin-botto
 .agent-section-title:first-of-type {{ border-top: 0; padding-top: 0; }}
 .secret-row {{ display: flex; gap: 8px; align-items: center; }}
 .secret-row input {{ flex: 1; }}
+.checkbox-row {{
+  display: flex; align-items: center; gap: 8px; margin: 0;
+  color: var(--text); font-size: 13px; font-weight: 500;
+  letter-spacing: normal; text-transform: none;
+}}
+.checkbox-row input {{ width: auto; }}
+
+.env-group {{
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}}
+.env-group:hover {{
+  border-color: var(--border-strong);
+}}
+.env-group summary {{
+  cursor: pointer;
+  padding: 12px 16px;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface-alt);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}}
+.env-group summary::before {{
+  content: '▸';
+  font-size: 12px;
+  color: var(--text-muted);
+  transition: transform 0.2s;
+}}
+.env-group[open] summary::before {{
+  transform: rotate(90deg);
+}}
+.env-group summary::-webkit-details-marker {{ display: none; }}
+.env-group .env-group-body {{
+  padding: 16px;
+}}
+.env-group .env-group-body .env-field {{
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}}
+.env-group .env-group-body .env-field:last-child {{
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: 0;
+}}
+.env-field-label {{
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}}
+.env-field-label .env-key {{
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--code-bg);
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}}
 
 .metadata {{ font-size: 12px; }}
 .metadata p {{ margin: 6px 0; }}
@@ -1484,21 +1569,57 @@ const CLI_DEFS = [
     default_command: 'claude',
     config_env: 'CLAUDE_CONFIG_DIR',
     supports_effort: true,
+    effort_options: ['', 'low', 'medium', 'high', 'xhigh', 'max', 'auto'],
+    model_placeholder: 'sonnet / opus / claude-sonnet-4-6',
     env: [
-      {{ key: 'ANTHROPIC_API_KEY', label_zh: 'API Key', label_en: 'API Key', secret: true,
+      {{ key: 'ANTHROPIC_AUTH_TOKEN', group: 'auth', label_zh: 'Auth Token', label_en: 'Auth Token', secret: true,
+         desc_zh: 'Bearer token，常用于第三方 Anthropic 兼容网关；会写入 Authorization: Bearer。',
+         desc_en: 'Bearer token, commonly used by third-party Anthropic-compatible gateways.' }},
+      {{ key: 'ANTHROPIC_API_KEY', group: 'auth', label_zh: 'API Key', label_en: 'API Key', secret: true,
          desc_zh: 'Anthropic 官方 API Key，或第三方兼容后端的 token。',
          desc_en: 'Anthropic official API key, or token for an Anthropic-compatible proxy.' }},
-      {{ key: 'ANTHROPIC_AUTH_TOKEN', label_zh: 'Auth Token', label_en: 'Auth Token', secret: true,
-         desc_zh: '可选，部分代理需要使用 auth token 而不是 API key。',
-         desc_en: 'Optional. Some proxies use an auth token instead of an API key.' }},
-      {{ key: 'ANTHROPIC_BASE_URL', label_zh: 'Base URL', label_en: 'Base URL',
-         desc_zh: '自定义 API 入口，例如使用 DeepSeek/Kimi 兼容 Anthropic 协议时填写。留空走官方。',
-         desc_en: 'Custom API endpoint, e.g. when routing through a DeepSeek/Kimi proxy.' }},
-      {{ key: 'ANTHROPIC_MODEL', label_zh: '模型覆盖 (ANTHROPIC_MODEL)', label_en: 'Model override (ANTHROPIC_MODEL)',
-         desc_zh: '覆盖默认模型，例如 claude-sonnet-4-6。',
-         desc_en: 'Override default main model, e.g. claude-sonnet-4-6.' }},
-      {{ key: 'ANTHROPIC_SMALL_FAST_MODEL', label_zh: '轻量模型 (ANTHROPIC_SMALL_FAST_MODEL)', label_en: 'Small/fast model (ANTHROPIC_SMALL_FAST_MODEL)',
-         desc_zh: '用于工具调用等轻量任务的模型，例如 claude-haiku-4-5。', desc_en: 'Model for lightweight tasks like tool calls, e.g. claude-haiku-4-5.' }},
+      {{ key: 'ANTHROPIC_BASE_URL', group: 'auth', label_zh: 'Base URL', label_en: 'Base URL',
+         desc_zh: 'Anthropic Messages API 入口；第三方兼容服务通常填写到 /anthropic 或 /v1 前的地址。',
+         desc_en: 'Anthropic Messages API endpoint; compatible gateways often use an /anthropic or /v1 endpoint.' }},
+      {{ key: 'ANTHROPIC_MODEL', group: 'model', label_zh: '主模型', label_en: 'Main model',
+         desc_zh: '覆盖 Claude Code 主模型；occ 的 agent.model / --model 仍有更高优先级。',
+         desc_en: 'Overrides Claude Code main model; occ agent.model / --model still has higher priority.' }},
+      {{ key: 'ANTHROPIC_DEFAULT_SONNET_MODEL', group: 'model', label_zh: '默认 Sonnet 模型', label_en: 'Default Sonnet model',
+         desc_zh: '用于 /model 中 Sonnet 档位的默认模型，适合第三方模型映射。',
+         desc_en: 'Default model for the Sonnet tier in /model, useful for third-party model mapping.' }},
+      {{ key: 'ANTHROPIC_DEFAULT_OPUS_MODEL', group: 'model', label_zh: '默认 Opus 模型', label_en: 'Default Opus model',
+         desc_zh: '用于 /model 中 Opus 档位的默认模型。',
+         desc_en: 'Default model for the Opus tier in /model.' }},
+      {{ key: 'ANTHROPIC_DEFAULT_HAIKU_MODEL', group: 'model', label_zh: '默认 Haiku 模型', label_en: 'Default Haiku model',
+         desc_zh: '用于 /model 中 Haiku 档位的默认模型。',
+         desc_en: 'Default model for the Haiku tier in /model.' }},
+      {{ key: 'ANTHROPIC_SMALL_FAST_MODEL', group: 'model', label_zh: '小/快模型', label_en: 'Small/fast model',
+         desc_zh: '后台任务和轻量任务模型；通常映射到 Haiku 或低成本快速模型。',
+         desc_en: 'Model for background and lightweight tasks; usually maps to Haiku or a low-cost fast model.' }},
+      {{ key: 'CLAUDE_CODE_EFFORT_LEVEL', group: 'behavior', label_zh: '思考强度', label_en: 'Effort level',
+         options: ['', 'low', 'medium', 'high', 'xhigh', 'max', 'auto'],
+         desc_zh: 'Claude Code 官方 effort 级别；等价于 /effort 或 settings.json 的 effortLevel。',
+         desc_en: 'Claude Code effort level; equivalent to /effort or settings.json effortLevel.' }},
+      {{ key: 'ENABLE_TOOL_SEARCH', group: 'behavior', label_zh: '启用 Tool Search', label_en: 'Enable Tool Search',
+         kind: 'checkbox', checked_value: 'true',
+         desc_zh: '启用 MCP 工具搜索能力。',
+         desc_en: 'Enables MCP tool search.' }},
+      {{ key: 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS', group: 'behavior', label_zh: '启用 Agent Teams', label_en: 'Enable Agent Teams',
+         kind: 'checkbox', checked_value: '1',
+         desc_zh: '启用 Claude Code 实验性的 agent teams。',
+         desc_en: 'Enables Claude Code experimental agent teams.' }},
+      {{ key: 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC', group: 'behavior', label_zh: '禁用非必要流量', label_en: 'Disable nonessential traffic',
+         kind: 'checkbox', checked_value: '1',
+         desc_zh: '关闭遥测、错误上报、反馈等非必要网络流量。',
+         desc_en: 'Disables telemetry, error reporting, feedback, and other nonessential traffic.' }},
+      {{ key: 'CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK', group: 'behavior', label_zh: '禁用非流式回退', label_en: 'Disable non-streaming fallback',
+         kind: 'checkbox', checked_value: '1',
+         desc_zh: '强制避免请求失败时回退到非流式响应。',
+         desc_en: 'Prevents fallback to non-streaming responses.' }},
+      {{ key: 'DISABLE_AUTOUPDATER', group: 'behavior', label_zh: '禁用自动更新', label_en: 'Disable auto updater',
+         kind: 'checkbox', checked_value: '1',
+         desc_zh: '禁用 Claude Code 自动更新检查。',
+         desc_en: 'Disables Claude Code auto-update checks.' }},
     ],
   }},
   {{
@@ -1507,35 +1628,83 @@ const CLI_DEFS = [
     default_command: 'codex',
     config_env: 'CODEX_HOME',
     supports_effort: true,
+    effort_options: ['', 'minimal', 'low', 'medium', 'high'],
+    model_placeholder: 'gpt-5-codex / gpt-5 / o3',
     env: [
-      {{ key: 'OPENAI_API_KEY', label_zh: 'API Key', label_en: 'API Key', secret: true,
-         desc_zh: 'OpenAI API Key，或 OpenAI 兼容后端的 token。',
-         desc_en: 'OpenAI API key, or token for an OpenAI-compatible backend.' }},
-      {{ key: 'OPENAI_BASE_URL', label_zh: 'Base URL', label_en: 'Base URL',
-         desc_zh: '自定义 API 入口，例如 DeepSeek、Kimi、ZhipuAI 等 OpenAI 兼容服务。',
-         desc_en: 'Custom API endpoint for OpenAI-compatible services.' }},
-      {{ key: 'OPENAI_MODEL', label_zh: '模型覆盖 (OPENAI_MODEL)', label_en: 'Model override (OPENAI_MODEL)',
-         desc_zh: '覆盖默认模型。',
-         desc_en: 'Override default model.' }},
-      {{ key: 'OPENAI_ORG_ID', label_zh: '组织 ID (OPENAI_ORG_ID)', label_en: 'Organization ID (OPENAI_ORG_ID)',
+      {{ key: 'OPENAI_API_KEY', group: 'auth', label_zh: 'API Key', label_en: 'API Key', secret: true,
+         desc_zh: 'OpenAI API Key；也可作为 OpenAI 兼容 provider 的 env_key 指向值。',
+         desc_en: 'OpenAI API key; can also be the value referenced by a compatible provider env_key.' }},
+      {{ key: 'CODEX_MODEL_PROVIDER', group: 'provider', label_zh: '模型 Provider', label_en: 'Model provider',
+         desc_zh: 'Codex config.toml 的 model_provider；留空时使用 Codex 默认 provider。',
+         desc_en: 'Codex config.toml model_provider; leave blank to use the Codex default provider.' }},
+      {{ key: 'OPENAI_BASE_URL', group: 'provider', label_zh: 'Provider Base URL', label_en: 'Provider Base URL',
+         desc_zh: 'Codex model_providers.<provider>.base_url；occ 运行 Codex 时会自动转换为 -c 覆盖。',
+         desc_en: 'Codex model_providers.<provider>.base_url; occ converts it to a -c override when running Codex.' }},
+      {{ key: 'CODEX_PROVIDER_ENV_KEY', group: 'provider', label_zh: 'Provider env_key', label_en: 'Provider env_key',
+         desc_zh: 'Codex provider 读取 key 的环境变量名，例如 OPENAI_API_KEY 或 AZURE_OPENAI_API_KEY。',
+         desc_en: 'Environment variable name used by the Codex provider, e.g. OPENAI_API_KEY or AZURE_OPENAI_API_KEY.' }},
+      {{ key: 'CODEX_WIRE_API', group: 'provider', label_zh: 'Wire API', label_en: 'Wire API',
+         options: ['', 'responses', 'chat'],
+         desc_zh: 'Codex provider 的 wire_api，常见为 responses 或 chat。',
+         desc_en: 'Codex provider wire_api, commonly responses or chat.' }},
+      {{ key: 'AZURE_OPENAI_API_KEY', group: 'provider', label_zh: 'Azure OpenAI API Key', label_en: 'Azure OpenAI API Key', secret: true,
+         desc_zh: 'Azure provider 常用的 env_key；config.toml 中 env_key 应指向这个变量名。',
+         desc_en: 'Common env_key for Azure providers; config.toml env_key should point to this variable name.' }},
+      {{ key: 'OPENAI_ORG_ID', group: 'optional', label_zh: '组织 ID', label_en: 'Organization ID',
          desc_zh: '可选，OpenAI 组织 ID。', desc_en: 'Optional OpenAI organization ID.' }},
-      {{ key: 'OPENAI_PROJECT_ID', label_zh: '项目 ID (OPENAI_PROJECT_ID)', label_en: 'Project ID (OPENAI_PROJECT_ID)',
+      {{ key: 'OPENAI_PROJECT_ID', group: 'optional', label_zh: '项目 ID', label_en: 'Project ID',
          desc_zh: '可选，OpenAI 项目 ID。', desc_en: 'Optional OpenAI project ID.' }},
+      {{ key: 'OPENAI_TIMEOUT_MS', group: 'optional', label_zh: '请求超时毫秒', label_en: 'Request timeout ms',
+         desc_zh: '可选，OpenAI SDK 常用请求超时；Codex provider 网络重试仍以 config.toml 为准。',
+         desc_en: 'Optional common OpenAI SDK request timeout; Codex provider retry tuning still comes from config.toml.' }},
     ],
   }},
   {{
     id: 'opencode',
-    label: 'opencode',
+    label: 'OpenCode',
     default_command: 'opencode',
     config_env: 'OPENCODE_CONFIG_DIR',
     supports_effort: false,
+    model_placeholder: 'anthropic/claude-sonnet-4-5 / myprovider/my-model',
     env: [
-      {{ key: 'OPENCODE_API_KEY', label_zh: 'API Key', label_en: 'API Key', secret: true,
-         desc_zh: 'opencode 使用的 API Key。', desc_en: 'API key used by opencode.' }},
-      {{ key: 'OPENCODE_BASE_URL', label_zh: 'Base URL', label_en: 'Base URL',
-         desc_zh: '自定义后端入口。', desc_en: 'Custom backend endpoint.' }},
-      {{ key: 'OPENCODE_MODEL', label_zh: '模型覆盖 (OPENCODE_MODEL)', label_en: 'Model override (OPENCODE_MODEL)',
-         desc_zh: '覆盖默认模型设置。', desc_en: 'Override the default model.' }},
+      {{ key: 'OPENCODE_PROVIDER_ID', group: 'provider', label_zh: 'Provider ID', label_en: 'Provider ID',
+         desc_zh: 'OpenCode provider.<id> 的 id，例如 openai、anthropic、openrouter、myprovider；留空时 baseURL/key 会映射到 openai。',
+         desc_en: 'OpenCode provider.<id>, e.g. openai, anthropic, openrouter, myprovider; if blank, baseURL/key map to openai.' }},
+      {{ key: 'OPENCODE_PROVIDER_NPM', group: 'provider', label_zh: 'Provider npm adapter', label_en: 'Provider npm adapter',
+         options: ['', '@ai-sdk/openai-compatible', '@ai-sdk/openai', '@ai-sdk/anthropic', '@ai-sdk/google'],
+         desc_zh: '自定义 provider 的 AI SDK 包；OpenAI 兼容 /v1/chat/completions 通常使用 @ai-sdk/openai-compatible，Responses API 可用 @ai-sdk/openai。',
+         desc_en: 'AI SDK package for a custom provider; OpenAI-compatible /v1/chat/completions usually uses @ai-sdk/openai-compatible, Responses API can use @ai-sdk/openai.' }},
+      {{ key: 'OPENCODE_PROVIDER_NAME', group: 'provider', label_zh: 'Provider 显示名', label_en: 'Provider display name',
+         desc_zh: '可选，OpenCode UI 中显示的 provider 名称。',
+         desc_en: 'Optional display name shown in the OpenCode UI.' }},
+      {{ key: 'OPENCODE_BASE_URL', group: 'auth', label_zh: 'Provider Base URL', label_en: 'Provider Base URL',
+         desc_zh: 'OpenCode provider.<id>.options.baseURL；occ 运行 OpenCode 时会写入 OPENCODE_CONFIG_CONTENT 覆盖。',
+         desc_en: 'OpenCode provider.<id>.options.baseURL; occ writes an OPENCODE_CONFIG_CONTENT override when running OpenCode.' }},
+      {{ key: 'OPENCODE_API_KEY', group: 'auth', label_zh: 'Provider API Key', label_en: 'Provider API Key', secret: true,
+         desc_zh: 'OpenCode provider.<id>.options.apiKey；运行时通过 {{env:OPENCODE_API_KEY}} 引用，避免把 key 直接写进 inline JSON。',
+         desc_en: 'OpenCode provider.<id>.options.apiKey; referenced as {{env:OPENCODE_API_KEY}} at runtime to avoid embedding the key in inline JSON.' }},
+      {{ key: 'OPENCODE_PROVIDER_MODEL_ID', group: 'model', label_zh: 'Provider 模型 ID', label_en: 'Provider model ID',
+         desc_zh: '自定义 provider 的 models.<model-id>；如果 agent.model 是 provider/model，也可以留空自动推导。',
+         desc_en: 'Custom provider models.<model-id>; can be left blank if agent.model is provider/model.' }},
+      {{ key: 'OPENCODE_MODEL_DISPLAY_NAME', group: 'model', label_zh: '模型显示名', label_en: 'Model display name',
+         desc_zh: '可选，OpenCode /models 中显示的模型名称。',
+         desc_en: 'Optional model name shown by OpenCode /models.' }},
+      {{ key: 'OPENCODE_SMALL_MODEL', group: 'model', label_zh: 'Small model', label_en: 'Small model',
+         desc_zh: 'OpenCode small_model，用于标题生成等轻量任务，例如 openai/gpt-5-nano。',
+         desc_en: 'OpenCode small_model for lightweight tasks such as title generation, e.g. openai/gpt-5-nano.' }},
+      {{ key: 'OPENCODE_TIMEOUT_MS', group: 'options', label_zh: '请求超时毫秒', label_en: 'Request timeout ms',
+         desc_zh: 'OpenCode provider.<id>.options.timeout；填写正整数毫秒，或 false 禁用超时。',
+         desc_en: 'OpenCode provider.<id>.options.timeout; enter a positive integer in ms, or false to disable timeout.' }},
+      {{ key: 'OPENCODE_CHUNK_TIMEOUT_MS', group: 'options', label_zh: '流式 chunk 超时毫秒', label_en: 'Stream chunk timeout ms',
+         desc_zh: 'OpenCode provider.<id>.options.chunkTimeout，控制流式响应两段 chunk 之间的超时。',
+         desc_en: 'OpenCode provider.<id>.options.chunkTimeout, timeout between streamed response chunks.' }},
+      {{ key: 'OPENCODE_SET_CACHE_KEY', group: 'options', label_zh: '启用 cache key', label_en: 'Enable cache key',
+         kind: 'checkbox', checked_value: 'true',
+         desc_zh: 'OpenCode provider.<id>.options.setCacheKey。',
+         desc_en: 'OpenCode provider.<id>.options.setCacheKey.' }},
+      {{ key: 'OPENCODE_CONFIG', group: 'other', label_zh: '自定义配置文件', label_en: 'Custom config file',
+         desc_zh: '可选，OpenCode 官方 OPENCODE_CONFIG，指向自定义 opencode.json 文件。',
+         desc_en: 'Optional official OPENCODE_CONFIG path to a custom opencode.json file.' }},
     ],
   }},
   {{
@@ -1544,14 +1713,15 @@ const CLI_DEFS = [
     default_command: 'gemini',
     config_env: 'HOME / USERPROFILE / APPDATA / LOCALAPPDATA',
     supports_effort: false,
+    model_placeholder: 'gemini-2.5-pro',
     env: [
-      {{ key: 'GEMINI_API_KEY', label_zh: 'API Key', label_en: 'API Key', secret: true,
+      {{ key: 'GEMINI_API_KEY', group: 'auth', label_zh: 'API Key', label_en: 'API Key', secret: true,
          desc_zh: 'Google AI Studio 的 Gemini API Key。', desc_en: 'Gemini API key from Google AI Studio.' }},
-      {{ key: 'GOOGLE_API_KEY', label_zh: 'Google API Key', label_en: 'Google API Key', secret: true,
+      {{ key: 'GOOGLE_API_KEY', group: 'auth', label_zh: 'Google API Key', label_en: 'Google API Key', secret: true,
          desc_zh: '可选，部分场景使用 Google Cloud 的通用 API Key。', desc_en: 'Optional, generic Google Cloud API key.' }},
-      {{ key: 'GOOGLE_CLOUD_PROJECT', label_zh: 'Google Cloud 项目 (GOOGLE_CLOUD_PROJECT)', label_en: 'Google Cloud Project (GOOGLE_CLOUD_PROJECT)',
+      {{ key: 'GOOGLE_CLOUD_PROJECT', group: 'optional', label_zh: 'Google Cloud 项目', label_en: 'Google Cloud Project',
          desc_zh: '可选，Google Cloud 项目 ID，用于 Vertex AI 等场景。', desc_en: 'Optional Google Cloud project ID for Vertex AI etc.' }},
-      {{ key: 'GOOGLE_CLOUD_LOCATION', label_zh: 'Google Cloud 区域 (GOOGLE_CLOUD_LOCATION)', label_en: 'Google Cloud Location (GOOGLE_CLOUD_LOCATION)',
+      {{ key: 'GOOGLE_CLOUD_LOCATION', group: 'optional', label_zh: 'Google Cloud 区域', label_en: 'Google Cloud Location',
          desc_zh: '可选，Google Cloud 区域，例如 us-central1。', desc_en: 'Optional Google Cloud region, e.g. us-central1.' }},
     ],
   }},
@@ -1626,6 +1796,13 @@ const I18N = {{
     "agent.section.system": "CLI 系统目录 / 隔离",
     "agent.section.env": "常用环境变量",
     "agent.section.env_extra": "其它 env（每行 KEY=VALUE）",
+    "env_group.auth": "认证与连接",
+    "env_group.provider": "Provider 配置",
+    "env_group.model": "模型设置",
+    "env_group.behavior": "行为与功能",
+    "env_group.options": "高级选项",
+    "env_group.optional": "可选配置",
+    "env_group.other": "其它",
     "agent.section.advanced": "高级 / 透传参数",
     "agent.name": "名称 *",
     "agent.cli_type": "CLI 类型 *",
@@ -1633,7 +1810,9 @@ const I18N = {{
     "agent.aliases.hint": "用于 --agent、--agents 和 /agent，精确选择这个 agent。",
     "agent.command": "命令名称（例如 claude）",
     "agent.model": "主模型名称 (model)",
+    "agent.model.hint": "保存到 agent.model，运行时会转换为当前 CLI 的 --model。",
     "agent.effort": "推理/思考强度 (effort)",
+    "agent.effort.hint": "保存到 agent.effort，运行时会转换为当前 CLI 支持的 effort 参数。",
     "agent.path": "可执行文件路径 (覆盖 command)",
     "agent.system_mode": "CLI 系统目录模式",
     "agent.system_mode.default": "使用默认 CLI 系统目录",
@@ -1669,6 +1848,7 @@ const I18N = {{
     "agent.env.detected_label": "已检测",
     "action.use_detected": "使用此值",
     "action.use_detected_all": "全部填入检测到的值",
+    "action.use_detected_model_effort": "填入检测到的 model / effort",
     "agent.no_cli": "未选择 CLI 类型",
     "msg.agent_count": (n) => n + " 个",
     "msg.need_name": "每个 agent 都需要 name。",
@@ -1757,6 +1937,13 @@ const I18N = {{
     "agent.section.system": "CLI system root / isolation",
     "agent.section.env": "Common env vars",
     "agent.section.env_extra": "Other env (KEY=VALUE per line)",
+    "env_group.auth": "Authentication & Connection",
+    "env_group.provider": "Provider Config",
+    "env_group.model": "Model Settings",
+    "env_group.behavior": "Behavior & Features",
+    "env_group.options": "Advanced Options",
+    "env_group.optional": "Optional",
+    "env_group.other": "Other",
     "agent.section.advanced": "Advanced / passthrough",
     "agent.name": "Name *",
     "agent.cli_type": "CLI type *",
@@ -1764,7 +1951,9 @@ const I18N = {{
     "agent.aliases.hint": "Used by --agent, --agents, and /agent to select this exact agent.",
     "agent.command": "command name (e.g. claude)",
     "agent.model": "model (agent-side label)",
+    "agent.model.hint": "Saved as agent.model and translated to this CLI's --model at runtime.",
     "agent.effort": "effort (reasoning level)",
+    "agent.effort.hint": "Saved as agent.effort and translated to this CLI's supported effort argument.",
     "agent.path": "executable path (overrides default command)",
     "agent.system_mode": "CLI system directory mode",
     "agent.system_mode.default": "Use default CLI system directory",
@@ -1800,6 +1989,7 @@ const I18N = {{
     "agent.env.detected_label": "detected",
     "action.use_detected": "Use this",
     "action.use_detected_all": "Use all detected values",
+    "action.use_detected_model_effort": "Use detected model / effort",
     "agent.no_cli": "No CLI type selected",
     "msg.agent_count": (n) => n + "",
     "msg.need_name": "Every agent needs a name.",
@@ -2122,6 +2312,12 @@ function buildAgentEditor(agent) {{
   const basic = grid();
   basic.appendChild(field(t('agent.cli_type'), buildCliTypeSelect(agent)));
   basic.appendChild(field(t('agent.aliases'), buildTextarea(agent, 'aliases', {{ asLines: true }}), t('agent.aliases.hint')));
+  basic.appendChild(field(t('agent.model'), buildModelField(agent), t('agent.model.hint')));
+  if (supportsEffort(agent)) {{
+    basic.appendChild(field(t('agent.effort'), buildEffortField(agent), t('agent.effort.hint')));
+  }} else {{
+    agent.effort = null;
+  }}
   wrap.appendChild(basic);
 
   // --- section: command ---
@@ -2151,12 +2347,6 @@ function buildAgentEditor(agent) {{
   const advBody = document.createElement('div');
   advBody.style.cssText = 'padding:14px;border-top:1px dashed var(--border);';
   const adv = grid();
-  adv.appendChild(field(t('agent.model'), buildText(agent, 'model')));
-  if (supportsEffort(agent)) {{
-    adv.appendChild(field(t('agent.effort'), buildText(agent, 'effort')));
-  }} else {{
-    agent.effort = null;
-  }}
   adv.appendChild(field(t('agent.default_timeout'), buildText(agent, 'default_timeout')));
   adv.appendChild(field(t('agent.args_strategy'), buildSelect(agent, 'args_strategy', [
     {{ value: 'builtin', label: t('agent.args_strategy.builtin') }},
@@ -2226,6 +2416,22 @@ function buildText(agent, key, opts) {{
   input.addEventListener('input', () => {{ agent[key] = input.value || null; }});
   return input;
 }}
+
+function buildModelField(agent) {{
+  const def = CLI_DEFS_BY_ID[agent.cli_type];
+  return buildText(agent, 'model', {{ placeholder: def && def.model_placeholder ? def.model_placeholder : '' }});
+}}
+
+function buildEffortField(agent) {{
+  const def = CLI_DEFS_BY_ID[agent.cli_type];
+  const options = def && Array.isArray(def.effort_options) ? def.effort_options : [];
+  if (!options.length) return buildText(agent, 'effort');
+  return buildSelect(agent, 'effort', options.map(value => ({{
+    value,
+    label: value || (LANG === 'en' ? '(use CLI default)' : '（使用 CLI 默认）'),
+  }})));
+}}
+
 function buildTextarea(agent, key, opts) {{
   const ta = document.createElement('textarea');
   if (opts && opts.asLines) ta.value = joinLines(agent[key] || []);
@@ -2418,49 +2624,103 @@ function buildEnvSection(host, agent) {{
     hint.textContent = t('agent.no_cli');
     host.appendChild(hint);
   }} else {{
-    const g = grid();
-    for (const meta of def.env) {{
-      const labelText = LANG === 'en' ? (meta.label_en || meta.key) : (meta.label_zh || meta.key);
-      const desc = LANG === 'en' ? meta.desc_en : meta.desc_zh;
-      const wrapper = document.createElement('div');
-      const lab = document.createElement('label');
-      lab.textContent = labelText + '  (' + meta.key + ')';
-      wrapper.appendChild(lab);
-      const ctrl = buildEnvField(agent, meta);
-      wrapper.appendChild(ctrl);
-      if (desc) {{
-        const hint = document.createElement('div');
-        hint.className = 'field-hint';
-        hint.textContent = desc;
-        wrapper.appendChild(hint);
-      }}
-      // detected default hint
-      const detectedValue = detected && detected.env ? detected.env[meta.key] : null;
-      if (detectedValue) {{
-        const detectedHint = document.createElement('div');
-        detectedHint.className = 'field-hint';
-        detectedHint.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:4px;color:var(--text-muted);';
-        const label = document.createElement('span');
-        label.textContent = t('agent.env.detected_label') + ': ';
-        const code = document.createElement('code');
-        code.textContent = meta.secret ? maskSecret(detectedValue) : detectedValue;
-        const useBtn = document.createElement('button');
-        useBtn.type = 'button';
-        useBtn.className = 'ghost small';
-        useBtn.textContent = t('action.use_detected');
-        useBtn.addEventListener('click', () => {{
-          if (!agent.env) agent.env = {{}};
-          agent.env[meta.key] = detectedValue;
-          renderAgentPane();
-        }});
-        detectedHint.appendChild(label);
-        detectedHint.appendChild(code);
-        detectedHint.appendChild(useBtn);
-        wrapper.appendChild(detectedHint);
-      }}
-      g.appendChild(wrapper);
+    if (detected && (detected.model || (supportsEffort(agent) && detected.effort))) {{
+      const useDetectedRun = document.createElement('button');
+      useDetectedRun.type = 'button';
+      useDetectedRun.className = 'secondary small';
+      useDetectedRun.style.marginBottom = '10px';
+      useDetectedRun.textContent = t('action.use_detected_model_effort');
+      useDetectedRun.addEventListener('click', () => {{
+        if (detected.model) agent.model = detected.model;
+        if (supportsEffort(agent) && detected.effort) agent.effort = detected.effort;
+        renderAgentPane();
+      }});
+      host.appendChild(useDetectedRun);
     }}
-    host.appendChild(g);
+
+    const groups = [];
+    const groupMap = {{}};
+    for (const meta of def.env) {{
+      const gid = meta.group || 'other';
+      if (!groupMap[gid]) {{
+        groupMap[gid] = [];
+        groups.push(gid);
+      }}
+      groupMap[gid].push(meta);
+    }}
+
+    groups.forEach((gid, idx) => {{
+      const fields = groupMap[gid];
+      const details = document.createElement('details');
+      details.className = 'env-group';
+      if (idx === 0) details.open = true;
+
+      const summary = document.createElement('summary');
+      summary.textContent = t('env_group.' + gid);
+      const filledCount = fields.filter(m => agent.env && agent.env[m.key]).length;
+      if (filledCount > 0) {{
+        const badge = document.createElement('span');
+        badge.style.cssText = 'font-size:11px;background:var(--primary-soft);color:var(--primary-hover);padding:1px 8px;border-radius:999px;font-weight:700;margin-left:auto;';
+        badge.textContent = filledCount + '/' + fields.length;
+        summary.appendChild(badge);
+      }}
+      details.appendChild(summary);
+
+      const body = document.createElement('div');
+      body.className = 'env-group-body';
+
+      for (const meta of fields) {{
+        const wrapper = document.createElement('div');
+        wrapper.className = 'env-field';
+        const labelRow = document.createElement('div');
+        labelRow.className = 'env-field-label';
+        const lab = document.createElement('label');
+        lab.style.margin = '0';
+        lab.textContent = LANG === 'en' ? (meta.label_en || meta.key) : (meta.label_zh || meta.key);
+        const keyBadge = document.createElement('span');
+        keyBadge.className = 'env-key';
+        keyBadge.textContent = meta.key;
+        labelRow.appendChild(lab);
+        labelRow.appendChild(keyBadge);
+        wrapper.appendChild(labelRow);
+        const ctrl = buildEnvField(agent, meta);
+        wrapper.appendChild(ctrl);
+        const desc = LANG === 'en' ? meta.desc_en : meta.desc_zh;
+        if (desc) {{
+          const hint = document.createElement('div');
+          hint.className = 'field-hint';
+          hint.textContent = desc;
+          wrapper.appendChild(hint);
+        }}
+        const detectedValue = detected && detected.env ? detected.env[meta.key] : null;
+        if (detectedValue) {{
+          const detectedHint = document.createElement('div');
+          detectedHint.className = 'field-hint';
+          detectedHint.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:4px;color:var(--text-muted);';
+          const label = document.createElement('span');
+          label.textContent = t('agent.env.detected_label') + ': ';
+          const code = document.createElement('code');
+          code.textContent = meta.secret ? maskSecret(detectedValue) : detectedValue;
+          const useBtn = document.createElement('button');
+          useBtn.type = 'button';
+          useBtn.className = 'ghost small';
+          useBtn.textContent = t('action.use_detected');
+          useBtn.addEventListener('click', () => {{
+            if (!agent.env) agent.env = {{}};
+            agent.env[meta.key] = detectedValue;
+            renderAgentPane();
+          }});
+          detectedHint.appendChild(label);
+          detectedHint.appendChild(code);
+          detectedHint.appendChild(useBtn);
+          wrapper.appendChild(detectedHint);
+        }}
+        body.appendChild(wrapper);
+      }}
+      details.appendChild(body);
+      host.appendChild(details);
+    }});
+
     if (detected && detected.env && Object.keys(detected.env).length > 0) {{
       const useAll = document.createElement('button');
       useAll.type = 'button';
@@ -2493,7 +2753,6 @@ function buildEnvSection(host, agent) {{
   ta.addEventListener('input', () => {{
     const known = new Set(def ? def.env.map(m => m.key) : []);
     const next = {{}};
-    // keep structured values
     for (const [k, v] of Object.entries(agent.env || {{}})) {{
       if (known.has(k)) next[k] = v;
     }}
@@ -2517,6 +2776,9 @@ function maskSecret(value) {{
 }}
 
 function buildEnvField(agent, meta) {{
+  if (meta.kind === 'checkbox') return buildEnvCheckbox(agent, meta);
+  if (Array.isArray(meta.options)) return buildEnvSelect(agent, meta);
+
   const row = document.createElement('div');
   row.className = 'secret-row';
   const input = document.createElement('input');
@@ -2540,6 +2802,48 @@ function buildEnvField(agent, meta) {{
     row.appendChild(toggle);
   }}
   return row;
+}}
+
+function buildEnvSelect(agent, meta) {{
+  const sel = document.createElement('select');
+  for (const value of meta.options || []) {{
+    const o = document.createElement('option');
+    o.value = value;
+    o.textContent = value || (LANG === 'en' ? '(unset)' : '（不设置）');
+    sel.appendChild(o);
+  }}
+  sel.value = (agent.env && agent.env[meta.key]) || '';
+  sel.addEventListener('change', () => {{
+    if (!agent.env) agent.env = {{}};
+    if (sel.value === '') delete agent.env[meta.key];
+    else agent.env[meta.key] = sel.value;
+  }});
+  return sel;
+}}
+
+function buildEnvCheckbox(agent, meta) {{
+  const row = document.createElement('label');
+  row.className = 'checkbox-row';
+  const input = document.createElement('input');
+  input.type = 'checkbox';
+  input.checked = envCheckboxChecked(agent.env && agent.env[meta.key], meta.checked_value);
+  input.addEventListener('change', () => {{
+    if (!agent.env) agent.env = {{}};
+    if (input.checked) agent.env[meta.key] = meta.checked_value || '1';
+    else delete agent.env[meta.key];
+  }});
+  const text = document.createElement('span');
+  text.textContent = LANG === 'en' ? 'Enabled' : '启用';
+  row.appendChild(input);
+  row.appendChild(text);
+  return row;
+}}
+
+function envCheckboxChecked(value, checkedValue) {{
+  if (value == null || value === '') return false;
+  const normalized = String(value).toLowerCase();
+  if (checkedValue != null && normalized === String(checkedValue).toLowerCase()) return true;
+  return ['1', 'true', 'yes', 'on'].includes(normalized);
 }}
 
 function uniqueName(base) {{

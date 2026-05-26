@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
+use serde_json::{Map, Number, Value};
 
 use crate::config::{ArgsStrategy, EnvMode, Profile, PromptVia};
 use crate::error::{OccError, OccResult};
@@ -145,6 +146,7 @@ pub fn build_command_plan(
         }
     };
 
+    append_env_config_args(&mut args, profile, backend, &transport_context);
     args.extend(child_args.iter().cloned());
 
     let prompt_stdin = match prompt_transport {
@@ -155,8 +157,12 @@ pub fn build_command_plan(
     let mut env = BTreeMap::new();
     apply_config_dir_isolation_env(backend, &transport_context, &mut env);
     for (key, value) in &profile.env {
+        if skip_profile_env_for_backend(backend, key) {
+            continue;
+        }
         env.insert(key.clone(), render(value, &transport_context));
     }
+    apply_env_config_env(backend, profile, &transport_context, &mut env);
 
     Ok(CommandPlan {
         executable,
@@ -215,6 +221,279 @@ pub fn render(value: &str, context: &TemplateContext) -> String {
         rendered = rendered.replace(needle, replacement);
     }
     rendered
+}
+
+fn append_env_config_args(
+    args: &mut Vec<String>,
+    profile: &Profile,
+    backend: &BackendSpec,
+    context: &TemplateContext,
+) {
+    if backend.name == "codex" {
+        append_codex_provider_config_args(args, profile, context);
+    }
+}
+
+fn apply_env_config_env(
+    backend: &BackendSpec,
+    profile: &Profile,
+    context: &TemplateContext,
+    env: &mut BTreeMap<String, String>,
+) {
+    if backend.name == "opencode" {
+        apply_opencode_config_content_env(profile, context, env);
+    }
+}
+
+fn append_codex_provider_config_args(
+    args: &mut Vec<String>,
+    profile: &Profile,
+    context: &TemplateContext,
+) {
+    let provider = rendered_profile_env(profile, "CODEX_MODEL_PROVIDER", context);
+    let base_url = rendered_profile_env(profile, "OPENAI_BASE_URL", context);
+    let env_key = rendered_profile_env(profile, "CODEX_PROVIDER_ENV_KEY", context);
+    let wire_api = rendered_profile_env(profile, "CODEX_WIRE_API", context);
+
+    if provider.is_none() && base_url.is_none() && env_key.is_none() && wire_api.is_none() {
+        return;
+    }
+
+    let provider_name = provider.unwrap_or_else(|| "openai".to_string());
+    push_config_arg(
+        args,
+        format!("model_provider={}", toml_string(&provider_name)),
+    );
+    if let Some(base_url) = base_url {
+        push_config_arg(
+            args,
+            format!(
+                "model_providers.{}.base_url={}",
+                toml_key_segment(&provider_name),
+                toml_string(&base_url)
+            ),
+        );
+    }
+    if let Some(env_key) = env_key {
+        push_config_arg(
+            args,
+            format!(
+                "model_providers.{}.env_key={}",
+                toml_key_segment(&provider_name),
+                toml_string(&env_key)
+            ),
+        );
+    }
+    if let Some(wire_api) = wire_api {
+        push_config_arg(
+            args,
+            format!(
+                "model_providers.{}.wire_api={}",
+                toml_key_segment(&provider_name),
+                toml_string(&wire_api)
+            ),
+        );
+    }
+}
+
+fn rendered_profile_env(profile: &Profile, key: &str, context: &TemplateContext) -> Option<String> {
+    profile
+        .env
+        .get(key)
+        .map(|value| render(value, context))
+        .filter(|value| !value.trim().is_empty())
+}
+
+fn push_config_arg(args: &mut Vec<String>, value: String) {
+    args.push("-c".to_string());
+    args.push(value);
+}
+
+fn toml_key_segment(value: &str) -> String {
+    if value
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+    {
+        value.to_string()
+    } else {
+        toml_string(value)
+    }
+}
+
+fn toml_string(value: &str) -> String {
+    let mut out = String::from("\"");
+    for ch in value.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            other => out.push(other),
+        }
+    }
+    out.push('"');
+    out
+}
+
+fn skip_profile_env_for_backend(backend: &BackendSpec, key: &str) -> bool {
+    match backend.name {
+        "codex" => matches!(
+            key,
+            "CODEX_MODEL_PROVIDER" | "CODEX_PROVIDER_ENV_KEY" | "CODEX_WIRE_API"
+        ),
+        "opencode" => matches!(
+            key,
+            "OPENCODE_PROVIDER_ID"
+                | "OPENCODE_PROVIDER_NPM"
+                | "OPENCODE_PROVIDER_NAME"
+                | "OPENCODE_BASE_URL"
+                | "OPENCODE_PROVIDER_MODEL_ID"
+                | "OPENCODE_MODEL_DISPLAY_NAME"
+                | "OPENCODE_SMALL_MODEL"
+                | "OPENCODE_TIMEOUT_MS"
+                | "OPENCODE_CHUNK_TIMEOUT_MS"
+                | "OPENCODE_SET_CACHE_KEY"
+        ),
+        _ => false,
+    }
+}
+
+fn apply_opencode_config_content_env(
+    profile: &Profile,
+    context: &TemplateContext,
+    env: &mut BTreeMap<String, String>,
+) {
+    if env.contains_key("OPENCODE_CONFIG_CONTENT") {
+        return;
+    }
+
+    let Some(config) = opencode_config_content(profile, context) else {
+        return;
+    };
+    env.insert("OPENCODE_CONFIG_CONTENT".to_string(), config.to_string());
+}
+
+fn opencode_config_content(profile: &Profile, context: &TemplateContext) -> Option<Value> {
+    let provider = rendered_profile_env(profile, "OPENCODE_PROVIDER_ID", context)
+        .unwrap_or_else(|| "openai".to_string());
+    let provider_npm = rendered_profile_env(profile, "OPENCODE_PROVIDER_NPM", context);
+    let provider_name = rendered_profile_env(profile, "OPENCODE_PROVIDER_NAME", context);
+    let base_url = rendered_profile_env(profile, "OPENCODE_BASE_URL", context);
+    let api_key = rendered_profile_env(profile, "OPENCODE_API_KEY", context);
+    let model_id = rendered_profile_env(profile, "OPENCODE_PROVIDER_MODEL_ID", context)
+        .or_else(|| opencode_model_id_for_provider(context.model.as_deref(), &provider));
+    let model_display = rendered_profile_env(profile, "OPENCODE_MODEL_DISPLAY_NAME", context);
+    let small_model = rendered_profile_env(profile, "OPENCODE_SMALL_MODEL", context);
+    let timeout = rendered_profile_env(profile, "OPENCODE_TIMEOUT_MS", context);
+    let chunk_timeout = rendered_profile_env(profile, "OPENCODE_CHUNK_TIMEOUT_MS", context);
+    let set_cache_key = rendered_profile_env(profile, "OPENCODE_SET_CACHE_KEY", context);
+
+    let has_provider_config = provider_npm.is_some()
+        || provider_name.is_some()
+        || base_url.is_some()
+        || api_key.is_some()
+        || model_id.is_some()
+        || model_display.is_some()
+        || timeout.is_some()
+        || chunk_timeout.is_some()
+        || set_cache_key.is_some();
+
+    if !has_provider_config && small_model.is_none() {
+        return None;
+    }
+
+    let mut root = Map::new();
+    root.insert(
+        "$schema".to_string(),
+        Value::String("https://opencode.ai/config.json".to_string()),
+    );
+    if let Some(small_model) = small_model {
+        root.insert("small_model".to_string(), Value::String(small_model));
+    }
+
+    if has_provider_config {
+        let mut provider_config = Map::new();
+        if let Some(provider_npm) = provider_npm {
+            provider_config.insert("npm".to_string(), Value::String(provider_npm));
+        }
+        if let Some(provider_name) = provider_name {
+            provider_config.insert("name".to_string(), Value::String(provider_name));
+        }
+
+        let mut options = Map::new();
+        if let Some(base_url) = base_url {
+            options.insert("baseURL".to_string(), Value::String(base_url));
+        }
+        if api_key.is_some() {
+            options.insert(
+                "apiKey".to_string(),
+                Value::String("{env:OPENCODE_API_KEY}".to_string()),
+            );
+        }
+        if let Some(value) = timeout.and_then(|value| opencode_timeout_value(&value)) {
+            options.insert("timeout".to_string(), value);
+        }
+        if let Some(value) = chunk_timeout.and_then(|value| opencode_integer_value(&value)) {
+            options.insert("chunkTimeout".to_string(), value);
+        }
+        if let Some(value) = set_cache_key.and_then(|value| opencode_bool_value(&value)) {
+            options.insert("setCacheKey".to_string(), value);
+        }
+        if !options.is_empty() {
+            provider_config.insert("options".to_string(), Value::Object(options));
+        }
+
+        if let Some(model_id) = model_id {
+            let mut model_config = Map::new();
+            if let Some(model_display) = model_display {
+                model_config.insert("name".to_string(), Value::String(model_display));
+            }
+            let mut models = Map::new();
+            models.insert(model_id, Value::Object(model_config));
+            provider_config.insert("models".to_string(), Value::Object(models));
+        }
+
+        let mut providers = Map::new();
+        providers.insert(provider, Value::Object(provider_config));
+        root.insert("provider".to_string(), Value::Object(providers));
+    }
+
+    Some(Value::Object(root))
+}
+
+fn opencode_model_id_for_provider(model: Option<&str>, provider: &str) -> Option<String> {
+    let model = model?.trim();
+    if model.is_empty() {
+        return None;
+    }
+    if let Some((model_provider, model_id)) = model.split_once('/') {
+        if model_provider == provider && !model_id.trim().is_empty() {
+            return Some(model_id.to_string());
+        }
+        return None;
+    }
+    Some(model.to_string())
+}
+
+fn opencode_timeout_value(value: &str) -> Option<Value> {
+    if value.trim().eq_ignore_ascii_case("false") {
+        return Some(Value::Bool(false));
+    }
+    opencode_integer_value(value)
+}
+
+fn opencode_integer_value(value: &str) -> Option<Value> {
+    let parsed = value.trim().parse::<u64>().ok()?;
+    Some(Value::Number(Number::from(parsed)))
+}
+
+fn opencode_bool_value(value: &str) -> Option<Value> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(Value::Bool(true)),
+        "0" | "false" | "no" | "off" => Some(Value::Bool(false)),
+        _ => None,
+    }
 }
 
 fn builtin_args(
@@ -783,6 +1062,156 @@ mod tests {
                 "model_reasoning_effort=\"xhigh\""
             ]
         );
+    }
+
+    #[test]
+    fn codex_provider_env_settings_become_config_args() {
+        let mut profile = profile();
+        profile.name = "codex".to_string();
+        profile.backend = "codex".to_string();
+        profile.command = Some("codex".to_string());
+        profile.env.insert(
+            "CODEX_MODEL_PROVIDER".to_string(),
+            "azure-openai".to_string(),
+        );
+        profile.env.insert(
+            "OPENAI_BASE_URL".to_string(),
+            "https://example.openai.azure.com/openai/v1".to_string(),
+        );
+        profile.env.insert(
+            "CODEX_PROVIDER_ENV_KEY".to_string(),
+            "AZURE_OPENAI_API_KEY".to_string(),
+        );
+        profile
+            .env
+            .insert("CODEX_WIRE_API".to_string(), "chat".to_string());
+        profile
+            .env
+            .insert("AZURE_OPENAI_API_KEY".to_string(), "secret".to_string());
+
+        let mut context = context(None);
+        context.profile = "codex".to_string();
+        context.backend = "codex".to_string();
+
+        let plan = build_command_plan(&profile, &context, false, false, &[]).unwrap();
+
+        assert!(plan
+            .args
+            .contains(&"model_provider=\"azure-openai\"".to_string()));
+        assert!(plan.args.contains(
+            &"model_providers.azure-openai.base_url=\"https://example.openai.azure.com/openai/v1\""
+                .to_string()
+        ));
+        assert!(plan.args.contains(
+            &"model_providers.azure-openai.env_key=\"AZURE_OPENAI_API_KEY\"".to_string()
+        ));
+        assert!(plan
+            .args
+            .contains(&"model_providers.azure-openai.wire_api=\"chat\"".to_string()));
+        assert_eq!(
+            plan.env.get("AZURE_OPENAI_API_KEY").map(String::as_str),
+            Some("secret")
+        );
+        assert!(!plan.env.contains_key("CODEX_MODEL_PROVIDER"));
+        assert!(!plan.env.contains_key("CODEX_PROVIDER_ENV_KEY"));
+        assert!(!plan.env.contains_key("CODEX_WIRE_API"));
+    }
+
+    #[test]
+    fn opencode_provider_env_settings_become_config_content() {
+        let mut profile = profile();
+        profile.name = "opencode".to_string();
+        profile.backend = "opencode".to_string();
+        profile.command = Some("opencode".to_string());
+        profile.prompt_via = None;
+        profile
+            .env
+            .insert("OPENCODE_PROVIDER_ID".to_string(), "myprovider".to_string());
+        profile.env.insert(
+            "OPENCODE_PROVIDER_NPM".to_string(),
+            "@ai-sdk/openai-compatible".to_string(),
+        );
+        profile.env.insert(
+            "OPENCODE_PROVIDER_NAME".to_string(),
+            "My Provider".to_string(),
+        );
+        profile.env.insert(
+            "OPENCODE_BASE_URL".to_string(),
+            "https://api.myprovider.test/v1".to_string(),
+        );
+        profile
+            .env
+            .insert("OPENCODE_API_KEY".to_string(), "secret".to_string());
+        profile.env.insert(
+            "OPENCODE_PROVIDER_MODEL_ID".to_string(),
+            "my-model".to_string(),
+        );
+        profile.env.insert(
+            "OPENCODE_MODEL_DISPLAY_NAME".to_string(),
+            "My Model".to_string(),
+        );
+        profile.env.insert(
+            "OPENCODE_SMALL_MODEL".to_string(),
+            "myprovider/small-model".to_string(),
+        );
+        profile
+            .env
+            .insert("OPENCODE_TIMEOUT_MS".to_string(), "600000".to_string());
+        profile
+            .env
+            .insert("OPENCODE_CHUNK_TIMEOUT_MS".to_string(), "30000".to_string());
+        profile
+            .env
+            .insert("OPENCODE_SET_CACHE_KEY".to_string(), "true".to_string());
+
+        let mut context = context(None);
+        context.profile = "opencode".to_string();
+        context.backend = "opencode".to_string();
+        context.model = Some("myprovider/my-model".to_string());
+
+        let plan = build_command_plan(&profile, &context, false, false, &[]).unwrap();
+        let content = plan.env.get("OPENCODE_CONFIG_CONTENT").unwrap();
+        let value = serde_json::from_str::<Value>(content).unwrap();
+
+        assert_eq!(
+            value["provider"]["myprovider"]["npm"].as_str(),
+            Some("@ai-sdk/openai-compatible")
+        );
+        assert_eq!(
+            value["provider"]["myprovider"]["options"]["baseURL"].as_str(),
+            Some("https://api.myprovider.test/v1")
+        );
+        assert_eq!(
+            value["provider"]["myprovider"]["options"]["apiKey"].as_str(),
+            Some("{env:OPENCODE_API_KEY}")
+        );
+        assert_eq!(
+            value["provider"]["myprovider"]["options"]["timeout"].as_u64(),
+            Some(600000)
+        );
+        assert_eq!(
+            value["provider"]["myprovider"]["options"]["chunkTimeout"].as_u64(),
+            Some(30000)
+        );
+        assert_eq!(
+            value["provider"]["myprovider"]["options"]["setCacheKey"].as_bool(),
+            Some(true)
+        );
+        assert_eq!(
+            value["provider"]["myprovider"]["models"]["my-model"]["name"].as_str(),
+            Some("My Model")
+        );
+        assert_eq!(
+            value["small_model"].as_str(),
+            Some("myprovider/small-model")
+        );
+        assert_eq!(
+            plan.env.get("OPENCODE_API_KEY").map(String::as_str),
+            Some("secret")
+        );
+        assert!(!plan.env.contains_key("OPENCODE_PROVIDER_ID"));
+        assert!(!plan.env.contains_key("OPENCODE_BASE_URL"));
+        assert!(!plan.env.contains_key("OPENCODE_PROVIDER_NPM"));
     }
 
     #[test]
