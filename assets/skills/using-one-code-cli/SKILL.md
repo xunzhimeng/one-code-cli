@@ -14,8 +14,8 @@ Use this skill when an agent delegates a coding task to another coding-agent CLI
 - Working directory for the delegated task.
 - Task prompt text, unless starting a foreground interactive session.
 - Either an exact agent or a CLI.
-- Optional model override when the user or project requires a specific model.
-- Optional effort override when the user or project requires a specific reasoning level.
+- Optional model selection when the user, project, or delegating agent specifies a model.
+- Optional effort selection when the user, project, or delegating agent specifies a reasoning level.
 - Whether the user wants supervised foreground execution or automated non-interactive execution.
 
 ## Storage model
@@ -32,9 +32,9 @@ Use this skill when an agent delegates a coding task to another coding-agent CLI
 Use this when `occ` is already known to work and the user or project specifies the agent/CLI.
 
 1. State the intended `cwd`, agent/CLI, mode, prompt source, `doc_root`, and whether files may be modified.
-   Include the model and effort overrides when they are requested.
-2. For non-interactive work, run `occ run ... --dry-run --output json` first when command shape, permissions, or prompt routing need confirmation.
-3. Run the task only after the parameters are clear.
+   Include model and effort when they are specified. If they are not specified, do not invent placeholder values; let the selected CLI, occ agent, session, or native CLI config choose defaults.
+2. Run the task directly once the parameters are clear. Do not run `--dry-run` as a routine preflight.
+3. Wait for `occ run` or the shell execution tool to finish before reporting the delegated result.
 4. Parse JSON output, note `model` / `model_source` and `effort` / `effort_source` when present, then read `result_path` first.
 5. Inspect `metadata_path`, `stdout.log`, `stderr.log`, or `events.jsonl` only when the result is missing, incomplete, failed, or ambiguous.
 
@@ -47,18 +47,25 @@ Use this when agent/CLI selection is unclear, `occ` failed, config may be stale,
 1. Run `occ doctor`.
 2. Run `occ agents list` only if agent selection is unknown or agent resolution failed.
 3. Run `occ clis list` only if CLI support is unknown or CLI resolution failed.
-4. Retry the smallest command needed to verify the fix, preferably with `--dry-run` before real execution.
+4. Retry the smallest real command needed to verify the fix. Use `--dry-run` only when inspecting command construction is the goal or real execution would be unwanted.
 
 ## Foreground and background policy
 
 - If the user wants supervision, default to foreground interactive mode. `occ run` without `--prompt`, `--prompt-file`, or `--stdin` enters interactive mode; `--interactive` can be used explicitly.
-- Do not launch long non-interactive runs silently. First show or dry-run the command parameters: `cwd`, agent/CLI, prompt source, `doc_root`, and permission posture.
-- If a specific model matters, include `--model <name>` in the shown command.
-- If a specific reasoning level matters, include `--effort <level>` in the shown command.
-- Use non-interactive background-style execution only after parameters are set, the task needs automation, or the user accepts that the child CLI TUI will not be visible.
+- Do not launch long non-interactive runs silently. First show the command parameters: `cwd`, agent/CLI, prompt source, `doc_root`, and permission posture.
+- Pass `--model` and `--effort` when the caller provides a model or reasoning level. If none is provided, omit those flags and use configured/default selection.
+- Prefer normal blocking execution from shell tools: start `occ run`, wait for it to complete, then read the JSON result. Avoid backgrounding delegated CLIs unless the user asks.
+- Use non-interactive execution when the task needs automation or the user accepts that the child CLI TUI will not be visible.
 - For supervised non-interactive runs, pass `--stream` so child stdout/stderr is mirrored to parent stderr while JSON remains on stdout.
-- By default, do not add `--timeout`; add it only when the user or project requires a hard limit.
+- By default, do not add `--timeout`; some CLIs and models are slow, and failures usually exit on their own. Add a timeout only when the user or project requires a hard limit.
 - Do not terminate a child process only because stdout is quiet. Some CLIs buffer output until completion.
+
+### Shell execution guidance
+
+- Run `occ` directly through the shell tool and let that shell call block until `occ` exits.
+- Do not use background forms such as `&`, `Start-Job`, `nohup`, or `Start-Process` without `-Wait`.
+- If `Start-Process` is unavoidable, use `-Wait -PassThru`, then check the process exit code before reading run artifacts.
+- Do not treat "process started" as completion. Read `result_path` only after the blocking command returns successfully or reports a failure JSON.
 
 ## Commands
 
@@ -74,13 +81,13 @@ Non-interactive with a short prompt:
 occ run --agent <agent> --cwd <cwd> --prompt "<task prompt>" --non-interactive --stream --output json
 ```
 
-Add a model override when needed:
+Explicit model selection:
 
 ```bash
 occ run --agent <agent> --cwd <cwd> --prompt "<task prompt>" --model <model> --non-interactive --stream --output json
 ```
 
-Add an effort override when needed:
+Explicit effort selection:
 
 ```bash
 occ run --agent <agent> --cwd <cwd> --prompt "<task prompt>" --effort <level> --non-interactive --stream --output json
@@ -100,11 +107,11 @@ If the agent is unknown but CLI is known:
 occ run --cli claude --cwd <cwd> --prompt "<task prompt>" --non-interactive --stream --output json
 ```
 
-The same pattern works with `--model <model>` and `--effort <level>` when the delegated task must target a specific model or reasoning level.
+The same pattern works with `--model <model>` and `--effort <level>` when the caller specifies a model or reasoning level. Do not copy example model names into real commands unless they were requested.
 
 Add `--timeout <duration>` only when a hard execution cap is needed.
 
-Dry-run before real execution when parameters need inspection:
+Dry-run only when command construction needs inspection and execution is not desired:
 
 ```bash
 occ run --cli claude --cwd <cwd> --prompt "test" --non-interactive --dry-run --output json
@@ -121,10 +128,10 @@ Expected JSON output:
   "session_id": "sess_...",
   "agent": "claude",
   "cli": "claude",
-  "model": "gpt-5.4",
-  "model_source": "cli-arg",
-  "effort": "xhigh",
-  "effort_source": "cli-arg",
+  "model": "default-or-detected-model",
+  "model_source": "cli-config",
+  "effort": null,
+  "effort_source": "none",
   "cwd": "E:/project/repo",
   "result_path": "C:/Users/user/.occ/runs/run_.../result.md",
   "metadata_path": "C:/Users/user/.occ/runs/run_.../run.toml",
@@ -140,9 +147,11 @@ Read order after completion:
 4. `stderr.log`
 5. `events.jsonl`
 
-If the parent agent cannot stream the child process output, treat silence as normal until completion, a configured timeout, or user interruption. Give the user the run directory and current wait policy instead of repeatedly killing or restarting the process.
+If the parent agent cannot stream the child process output, treat silence as normal until completion, a configured timeout, or user interruption. Give the user the run directory and current wait policy instead of repeatedly killing, restarting, or posting status spam.
 
 ## Resume
+
+When continuing a previous delegated task, prefer resume mode so the worker can recover its native CLI context. Do not start a fresh task just to continue a prior session when a `session_id` is available.
 
 Do not assume every CLI supports native resume. `occ` keeps its own `session_id` and may also know a CLI-native session id.
 

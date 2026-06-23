@@ -89,15 +89,15 @@ Use the using-one-code-cli skill. Delegate the task through occ and read result_
 ```powershell
 occ run --cli claude --prompt "Reply with exactly OK" --non-interactive --output json
 occ run --cli codex --prompt "Reply with exactly OK" --non-interactive --output json
-occ run --cli codex --prompt "Reply with exactly OK" --model gpt-5.4 --non-interactive --output json
-occ run --cli codex --prompt "Reply with exactly OK" --model gpt-5.4 --effort xhigh --non-interactive --output json
+occ run --cli gemini --prompt "Reply with exactly OK" --non-interactive --output json
 ```
+
+Pass `--model` or `--effort` when the caller specifies a model or reasoning level; otherwise let the selected CLI/default agent use its configured defaults. Do not add `--timeout` or `--dry-run` for normal execution, and wait for the command to finish.
 
 Run the same task across multiple agents in parallel:
 
 ```powershell
 occ run --agents claude-cc,deepseek-cc --prompt "Review this repository" --stream --output json
-occ run --agents claude-cc,deepseek-cc --prompt "Review this repository" --dry-run --output json
 ```
 
 Multi-agent output returns `batch_id` and `runs[]`. Each run still has its own `run_id`, `session_id`, `result_path`, and `metadata_path`. With `--stream`, live output is prefixed with `[agent]` and empty/control-only noise is filtered while raw stdout/stderr logs are preserved per run. `--agents` selects exact agents and does not go through the `--cli` default mapping.
@@ -114,7 +114,7 @@ Read `result_path` first from the JSON response. When selection matters, also in
 
 ## Dry-run checks
 
-Inspect the final command plan before executing:
+Inspect the final command plan before executing. This is mainly for command-shape diagnostics, prompt routing checks, or automation tests; normal agent delegation can run directly.
 
 ```powershell
 occ run --cli claude --prompt "test" --non-interactive --dry-run --output json
@@ -141,6 +141,8 @@ Prompt-driven runs use non-interactive automation:
 - Does not show the child CLI TUI
 
 Use `--stream` to mirror child stdout/stderr to the parent stderr while preserving logs and JSON stdout. Multi-agent streams are automatically prefixed by agent.
+
+Do not add `--timeout` by default. Some CLIs and models can be slow; use a timeout only when you need a hard cap.
 
 Foreground mode:
 
@@ -231,6 +233,12 @@ Selection rules:
 
 Resume support uses each CLI's native mechanism when available. Claude Code and Gemini receive a generated native UUID on new runs so later `--resume` can target the same native session; Codex and opencode use their current CLI resume/continue commands. `--session <id>` always stays bound to the session's original agent; passing a conflicting `--agent` or `--cli` returns `session_agent_mismatch`.
 
+When continuing prior delegated work, prefer resume mode:
+
+```powershell
+occ run --session <session-id> --resume --prompt "Continue the previous task" --non-interactive --stream --output json
+```
+
 Explanatory output reads `OCC_LANG`, `LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, and `LANG`:
 
 ```powershell
@@ -269,14 +277,14 @@ occ skills
 /status
 /agent claude
 /cli codex
-/model gpt-5.4
+/model <model>
 /model
 /session
 /clear
 /exit
 ```
 
-`/agent` and `/cli` clear the current session and local transcript so different CLIs do not share stale context.
+`/model <model>` overrides the model for the current chat; `/model` clears the override and returns to configured defaults. `/agent` and `/cli` clear the current session and local transcript so different CLIs do not share stale context.
 
 ## Star History
 

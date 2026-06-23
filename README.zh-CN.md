@@ -122,15 +122,15 @@ occ skills show using-one-code-cli
 ```powershell
 occ run --cli claude --prompt "Reply with exactly OK" --non-interactive --output json
 occ run --cli codex --prompt "Reply with exactly OK" --non-interactive --output json
-occ run --cli codex --prompt "Reply with exactly OK" --model gpt-5.4 --non-interactive --output json
-occ run --cli codex --prompt "Reply with exactly OK" --model gpt-5.4 --effort xhigh --non-interactive --output json
+occ run --cli gemini --prompt "Reply with exactly OK" --non-interactive --output json
 ```
+
+调用方指定模型或推理等级时，就传 `--model` 或 `--effort`；未指定时，让选中的 CLI / 默认 agent 使用自己的配置。正常执行不要加 `--timeout` 或 `--dry-run`，并等待命令执行完成。
 
 按多个 agent 并行调用同一个任务：
 
 ```powershell
 occ run --agents claude-cc,deepseek-cc --prompt "Review this repository" --stream --output json
-occ run --agents claude-cc,deepseek-cc --prompt "Review this repository" --dry-run --output json
 ```
 
 多 agent 输出会返回 `batch_id` 和 `runs[]`；每个 run 仍有独立 `run_id`、`session_id`、`result_path`、`metadata_path`。加 `--stream` 时，实时输出会带 `[agent]` 前缀，并过滤空行与纯控制序列；完整原始 stdout/stderr 仍写入各自 run 目录。`--agents` 是精确 agent 选择，不会再经过 `--cli` 的默认映射。
@@ -172,6 +172,8 @@ occ run --cli codex --cwd "E:\project\repo"
 - 不显示子 CLI TUI
 
 这适合其它 AI agent 和自动化脚本。需要实时观察子进程输出时，加 `--stream`，它会把子进程 stdout/stderr 镜像到父进程 stderr，同时保留日志和最终 JSON stdout。多 agent 模式下，实时输出会自动按 agent 加前缀，便于同时观察。
+
+默认不要加 `--timeout`。有些 CLI 和模型响应很慢，只有确实需要硬性执行上限时才设置超时。
 
 显式前台交互模式：
 
@@ -222,7 +224,7 @@ gemini.cmd --yolo --skip-trust --prompt <prompt>
 
 ## dry-run 验证
 
-执行前检查最终命令：
+执行前检查最终命令。它主要用于诊断命令形态、prompt 路由或自动化测试；正常 agent 委派可以直接运行。
 
 ```powershell
 occ run --cli claude --prompt "test" --non-interactive --dry-run --output json
@@ -246,13 +248,13 @@ occ run --agents claude-cc,deepseek-cc --prompt "test" --dry-run --output json
 Claude Code：
 
 ```powershell
-occ run --cli claude --prompt "Reply with exactly OCC_CLAUDE_FINAL_OK" --non-interactive --output json --timeout 90s
+occ run --cli claude --prompt "Reply with exactly OCC_CLAUDE_FINAL_OK" --non-interactive --output json
 ```
 
 Codex CLI：
 
 ```powershell
-occ run --cli codex --prompt "Reply with exactly OCC_CODEX_FINAL_OK" --non-interactive --output json --timeout 180s
+occ run --cli codex --prompt "Reply with exactly OCC_CODEX_FINAL_OK" --non-interactive --output json
 ```
 
 两者都应返回 `success = true`，然后读取 `result_path`。
@@ -335,6 +337,12 @@ prompt_via = "stdin"
 
 resume 会尽量使用各 CLI 的原生机制。Claude Code 与 Gemini 新会话会收到 occ 生成的原生 UUID，后续 `--resume` 可以回到同一个 CLI 原生 session；Codex 和 opencode 使用当前 CLI 的 resume/continue 命令。`--session <id>` 始终绑定该 session 原始 agent；传入冲突的 `--agent` 或 `--cli` 会返回 `session_agent_mismatch`。
 
+继续之前委派的任务时，优先使用 resume 模式：
+
+```powershell
+occ run --session <session-id> --resume --prompt "Continue the previous task" --non-interactive --stream --output json
+```
+
 说明性输出会读取 `OCC_LANG`、`LANGUAGE`、`LC_ALL`、`LC_MESSAGES`、`LANG`，例如：
 
 ```powershell
@@ -375,14 +383,14 @@ occ skills
 /status
 /agent claude
 /cli codex
-/model gpt-5.4
+/model <model>
 /model
 /session
 /clear
 /exit
 ```
 
-`/agent` 和 `/cli` 会清空当前 session 与本地 transcript，避免把不同 CLI 的上下文混在一起。
+`/model <model>` 会为当前对话覆盖模型；单独输入 `/model` 会清空覆盖并回到配置默认值。`/agent` 和 `/cli` 会清空当前 session 与本地 transcript，避免把不同 CLI 的上下文混在一起。
 
 ## 代理转发
 

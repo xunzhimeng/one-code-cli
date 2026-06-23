@@ -1467,8 +1467,8 @@ fn skills_install_removes_obsolete_bundled_files() {
 }
 
 #[test]
-fn skills_install_exports_model_aware_using_one_code_cli_docs() {
-    let dir = temp_dir("skills-install-model-aware");
+fn skills_install_exports_agent_friendly_using_one_code_cli_docs() {
+    let dir = temp_dir("skills-install-agent-friendly");
     let target = dir.join("skills");
 
     let output = Command::new(env!("CARGO_BIN_EXE_occ"))
@@ -1492,20 +1492,30 @@ fn skills_install_exports_model_aware_using_one_code_cli_docs() {
     let run_with_agent =
         fs::read_to_string(skill_dir.join("examples").join("run-with-agent.md")).unwrap();
 
-    assert!(skill_toml.contains("model = \"Optional model override for the delegated run.\""));
-    assert!(skill_toml
-        .contains("effort = \"Optional reasoning effort override for the delegated run.\""));
+    assert!(skill_toml.contains(
+        "model = \"Optional model selection; pass when specified, otherwise use configured defaults.\""
+    ));
+    assert!(skill_toml.contains(
+        "effort = \"Optional reasoning effort selection; pass when specified, otherwise use configured defaults.\""
+    ));
     assert!(skill_toml.contains("model = \"Resolved model used for the run when available.\""));
     assert!(skill_toml.contains("model_source = \"Where the resolved model came from.\""));
     assert!(skill_toml
         .contains("effort = \"Resolved reasoning effort used for the run when available.\""));
     assert!(skill_toml.contains("effort_source = \"Where the resolved effort came from.\""));
-    assert!(skill_md.contains("model override"));
+    assert!(skill_md.contains("Pass `--model` and `--effort` when the caller provides"));
+    assert!(skill_md.contains("Do not run `--dry-run` as a routine preflight."));
+    assert!(skill_md.contains("Wait for `occ run` or the shell execution tool to finish"));
+    assert!(skill_md.contains("Do not use background forms such as `&`, `Start-Job`, `nohup`"));
+    assert!(skill_md.contains("Do not treat \"process started\" as completion."));
+    assert!(skill_md.contains("By default, do not add `--timeout`"));
+    assert!(skill_md.contains("When continuing a previous delegated task, prefer resume mode"));
     assert!(skill_md.contains("model_source"));
-    assert!(skill_md.contains("effort override"));
     assert!(skill_md.contains("effort_source"));
     assert!(run_with_agent.contains("--model <model>"));
     assert!(run_with_agent.contains("--effort <level>"));
+    assert!(run_with_agent.contains("Run the command in normal blocking shell execution"));
+    assert!(run_with_agent.contains("Start-Process` without `-Wait"));
 }
 
 #[test]

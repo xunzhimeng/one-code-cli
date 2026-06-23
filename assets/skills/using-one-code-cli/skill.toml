@@ -11,8 +11,8 @@ prompt = "Task prompt text. Prefer --prompt for short text or --stdin for longer
 prompt_file = "Optional prompt file for file-based, reusable, or explicitly file-required tasks."
 agent = "Optional exact One Code CLI agent."
 cli = "Optional CLI type: claude, codex, opencode, gemini."
-model = "Optional model override for the delegated run."
-effort = "Optional reasoning effort override for the delegated run."
+model = "Optional model selection; pass when specified, otherwise use configured defaults."
+effort = "Optional reasoning effort selection; pass when specified, otherwise use configured defaults."
 session = "Optional One Code CLI session id for resume."
 
 [outputs]
