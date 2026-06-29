@@ -142,7 +142,7 @@ Prompt-driven runs use non-interactive automation:
 
 Use `--stream` to mirror child stdout/stderr to the parent stderr while preserving logs and JSON stdout. Multi-agent streams are automatically prefixed by agent.
 
-Do not add `--timeout` by default. Some CLIs and models can be slow; use a timeout only when you need a hard cap.
+Do not add `--timeout` by default. Some CLIs and models can be slow; if you do need a hard cap, set at least `10m` — shorter timeouts are clamped to 10 minutes so the session can always be resumed.
 
 Foreground mode:
 

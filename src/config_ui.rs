@@ -334,7 +334,7 @@ mod tests {
         let html = form_html("{}", "{}", "{}", Path::new("config.toml"));
         assert!(html.contains("supports_effort: true"));
         assert!(html.contains("supportsEffort(agent)"));
-        assert!(html.contains("effort_options: ['', 'minimal', 'low', 'medium', 'high']"));
+        assert!(html.contains("effort_options: ['', 'minimal', 'medium', 'high', 'xhigh']"));
         assert!(html.contains("buildEffortField(agent)"));
     }
 
@@ -358,9 +358,8 @@ mod tests {
         assert!(html.contains("CLI 类型别名"));
         assert!(html.contains("occ run --cli"));
         assert!(html.contains("/cli"));
-        assert!(html.contains("Agent 别名"));
+        assert!(html.contains("别名"));
         assert!(html.contains("--agent"));
-        assert!(html.contains("--agents"));
         assert!(html.contains("alias === cli"));
         assert!(html.contains("alias !== cli"));
     }
@@ -961,40 +960,40 @@ fn form_html(
   --toast-bg: rgba(17, 24, 39, 0.95);
 }}
 html[data-theme="light"] {{
-  --bg: #FAF8F5;
-  --bg-gradient: linear-gradient(135deg, #FCFAF7 0%, #F5F1E9 100%);
+  --bg: #f8f9fb;
+  --bg-gradient: linear-gradient(135deg, #f8f9fb 0%, #eef0f4 100%);
   --surface: rgba(255, 255, 255, 0.95);
-  --surface-alt: rgba(245, 241, 233, 0.7);
-  --border: rgba(216, 209, 194, 0.5);
-  --border-strong: rgba(180, 170, 150, 0.5);
-  --text: #2E2B2A;
-  --text-muted: #6E6762;
-  --text-subtle: #A59E98;
-  --primary: #6B5EAE;
+  --surface-alt: rgba(243, 244, 248, 0.85);
+  --border: rgba(210, 214, 224, 0.6);
+  --border-strong: rgba(180, 186, 200, 0.7);
+  --text: #1a1d23;
+  --text-muted: #5c6270;
+  --text-subtle: #9095a2;
+  --primary: #5b6cb5;
   --primary-text: #ffffff;
-  --primary-hover: #584A9A;
-  --primary-soft: rgba(107, 94, 174, 0.12);
-  --secondary-bg: #EFEBE4;
-  --secondary-text: #3A3432;
-  --secondary-hover: #E2DBD0;
+  --primary-hover: #4a59a0;
+  --primary-soft: rgba(91, 108, 181, 0.10);
+  --secondary-bg: #eef0f4;
+  --secondary-text: #3a404d;
+  --secondary-hover: #e1e4eb;
   --danger: #dc2626;
   --danger-text: #ffffff;
   --danger-hover: #b91c1c;
   --success: #059669;
   --error: #e11d48;
-  --code-bg: #F5EFE6;
-  --code-text: #6B5EAE;
-  --shadow: 0 4px 12px -2px rgba(180, 170, 150, 0.12), 0 2px 6px -1px rgba(180, 170, 150, 0.08);
-  --shadow-strong: 0 20px 32px -8px rgba(180, 170, 150, 0.25), 0 8px 16px -4px rgba(180, 170, 150, 0.15);
-  --tab-active-bg: rgba(107, 94, 174, 0.15);
-  --tab-inactive: #7E736E;
-  --focus: 0 0 0 3px rgba(107, 94, 174, 0.25);
+  --code-bg: #f1f3f8;
+  --code-text: #5b6cb5;
+  --shadow: 0 4px 12px -2px rgba(160, 170, 190, 0.12), 0 2px 6px -1px rgba(160, 170, 190, 0.08);
+  --shadow-strong: 0 20px 32px -8px rgba(140, 150, 175, 0.18), 0 8px 16px -4px rgba(140, 150, 175, 0.10);
+  --tab-active-bg: rgba(91, 108, 181, 0.10);
+  --tab-inactive: #8890a0;
+  --focus: 0 0 0 3px rgba(91, 108, 181, 0.20);
   --input-bg: #ffffff;
   --input-bg-focus: #ffffff;
-  --toolbar-bg: rgba(252, 250, 247, 0.85);
-  --tabs-bg: rgba(230, 224, 214, 0.5);
+  --toolbar-bg: rgba(250, 251, 254, 0.92);
+  --tabs-bg: rgba(235, 238, 245, 0.6);
   --tab-hover-bg: rgba(0, 0, 0, 0.03);
-  --toast-bg: rgba(255, 255, 255, 0.95);
+  --toast-bg: rgba(255, 255, 255, 0.96);
 }}
 * {{ box-sizing: border-box; }}
 html, body {{ height: 100%; }}
@@ -1075,6 +1074,9 @@ button.danger:hover {{ background: var(--danger-hover); box-shadow: 0 6px 20px r
 button.ghost {{ background: transparent; color: var(--text-muted); padding: 6px 12px; border: 1px solid transparent; }}
 button.ghost:hover {{ background: var(--surface-alt); color: var(--text); border-color: var(--border); }}
 button.small {{ padding: 6px 12px; font-size: 12px; border-radius: 8px; }}
+button#save-btn.dirty {{ box-shadow: 0 0 0 2px var(--success); animation: dirtyPulse 1.8s ease-in-out infinite; }}
+button#save-btn.dirty::after {{ content: ' \2022'; color: var(--success); font-weight: 800; }}
+@keyframes dirtyPulse {{ 0%,100% {{ box-shadow: 0 0 0 2px var(--success); }} 50% {{ box-shadow: 0 0 0 5px var(--primary-soft); }} }}
 
 input[type=text], input[type=number], input[type=password], textarea, select {{
   width: 100%; box-sizing: border-box;
@@ -1088,7 +1090,17 @@ input[type=text]:focus, input[type=number]:focus, input[type=password]:focus, te
   outline: none; border-color: var(--primary); box-shadow: var(--focus);
   background: var(--input-bg-focus);
 }}
+input.invalid, textarea.invalid, select.invalid {{ border-color: var(--danger) !important; box-shadow: 0 0 0 2px rgba(239,68,68,0.22) !important; }}
 textarea {{ min-height: 80px; resize: vertical; line-height: 1.5; }}
+input::placeholder, textarea::placeholder {{
+  color: var(--text-subtle);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  opacity: 0.7;
+}}
+.onboarding-steps {{ margin: 0; padding-left: 20px; color: var(--text-muted); font-size: 13px; line-height: 1.9; }}
+.onboarding-steps li {{ margin-bottom: 2px; }}
+.onboarding-steps li::marker {{ color: var(--primary); font-weight: 700; }}
 
 /* Styled Switch instead of checkbox */
 .switch {{
@@ -1224,8 +1236,12 @@ label {{ display: block; font-size: 12px; color: var(--text-muted); margin-botto
 }}
 .agent-item:hover {{ background: var(--surface-alt); transform: translateX(4px); }}
 .agent-item.active {{ background: var(--primary-soft); border-color: var(--primary); box-shadow: inset 3px 0 0 var(--primary); }}
-.agent-item .name {{ font-weight: 600; font-size: 13px; }}
-.agent-item .cli {{ font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }}
+.agent-item .name {{ font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 6px; }}
+.agent-item .default-badge {{ font-size: 10px; background: var(--primary-soft); color: var(--primary-hover); padding: 1px 6px; border-radius: 999px; font-weight: 700; }}
+.agent-item .cli {{ font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); display: flex; align-items: center; gap: 6px; }}
+.agent-item .dot {{ width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }}
+.agent-item .dot-ok {{ background: var(--success); }}
+.agent-item .dot-warn {{ background: #f59e0b; }}
 .agent-item.active .cli {{ color: var(--text-muted); }}
 .agent-empty {{ color: var(--text-muted); font-size: 12px; padding: 16px 4px; text-align: center; }}
 
@@ -1261,6 +1277,67 @@ label {{ display: block; font-size: 12px; color: var(--text-muted); margin-botto
   letter-spacing: normal; text-transform: none;
 }}
 .checkbox-row input {{ width: auto; }}
+
+/* ---- agent wizard steps ---- */
+.agent-steps {{
+  display: flex; align-items: center; gap: 0;
+  margin: 0 0 28px; padding: 14px 12px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow-x: auto;
+}}
+.agent-step {{
+  display: flex; align-items: center; gap: 8px;
+  cursor: pointer; padding: 4px 6px; border-radius: 8px;
+  transition: background 0.15s; flex-shrink: 0; border: none; background: none;
+  font-family: inherit;
+}}
+.agent-step:hover {{ background: var(--surface); }}
+.agent-step .step-circle {{
+  width: 28px; height: 28px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700;
+  border: 2px solid var(--border); color: var(--text-muted);
+  background: var(--surface); transition: all 0.2s;
+}}
+.agent-step.active .step-circle {{
+  border-color: var(--primary); background: var(--primary); color: #fff;
+}}
+.agent-step.done .step-circle {{
+  border-color: var(--primary); background: var(--primary-soft); color: var(--primary);
+}}
+.agent-step .step-label {{
+  font-size: 13px; font-weight: 600; color: var(--text-muted); white-space: nowrap;
+}}
+.agent-step.active .step-label {{ color: var(--text); }}
+.agent-step.done .step-label {{ color: var(--text); }}
+.agent-step-line {{
+  flex: 1; height: 2px; background: var(--border); margin: 0 6px; min-width: 16px;
+  transition: background 0.2s;
+}}
+.agent-step-line.done {{ background: var(--primary); }}
+.step-body {{ min-height: 180px; animation: fadeIn 0.25s ease; }}
+.step-desc {{
+  font-size: 13px; color: var(--text-muted); margin: 0 0 20px; line-height: 1.6;
+}}
+.step-footer {{
+  display: flex; justify-content: space-between; align-items: center;
+  margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--border); gap: 12px;
+}}
+.step-footer .spacer {{ flex: 1; }}
+.step-summary {{
+  font-size: 12px; color: var(--text-muted);
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}}
+.step-summary .sum-tag {{
+  background: var(--primary-soft); color: var(--primary);
+  padding: 2px 8px; border-radius: 999px; font-weight: 600;
+}}
+.step-summary .sum-tag.warn {{
+  background: rgba(217,119,6,0.12); color: #b45309;
+}}
+@keyframes fadeIn {{ from {{ opacity: 0; transform: translateY(6px); }} to {{ opacity: 1; transform: translateY(0); }} }}
 
 .env-group {{
   margin-bottom: 16px;
@@ -1456,10 +1533,6 @@ dialog pre {{
     <p class="card-desc muted" data-i18n="general.basic.desc">控制 occ 自身行为的全局选项。</p>
     <div class="grid">
       <div>
-        <label data-i18n="field.version">版本</label>
-        <input type="number" id="version" min="1" />
-      </div>
-      <div>
         <label data-i18n="field.default_agent">默认 agent</label>
         <select id="default-agent"></select>
         <div class="field-hint" data-i18n="field.default_agent.hint">未指定 --agent / --cli 时使用的 agent。</div>
@@ -1467,11 +1540,17 @@ dialog pre {{
       <div>
         <label data-i18n="field.doc_root">运行记录目录</label>
         <input type="text" id="doc-root" data-ph="ph.doc_root" />
+        <div class="field-hint" data-i18n="field.doc_root.hint">occ 运行日志与记录的存放目录，默认 ~/.occ。</div>
       </div>
       <div>
         <label data-i18n="field.timeout">默认超时</label>
         <input type="text" id="default-timeout" data-ph="ph.timeout" />
-        <div class="field-hint" data-i18n="field.timeout.hint">支持 none / 60s / 5m / 2h。</div>
+        <div class="field-hint" data-i18n="field.timeout.hint">单次任务最长运行时间，超时自动结束。支持 none / 60s / 5m / 2h。</div>
+      </div>
+      <div>
+        <label data-i18n="field.version">配置版本</label>
+        <input type="number" id="version" min="1" />
+        <div class="field-hint" data-i18n="field.version.hint">配置文件版本号，通常不需要手动修改。</div>
       </div>
     </div>
   </div>
@@ -1510,6 +1589,14 @@ dialog pre {{
 </section>
 
 <section class="tab-panel" data-panel="agents">
+  <div class="card" id="agents-onboarding" style="margin-bottom:20px;">
+    <div class="card-title"><h2 data-i18n="agents.onboarding.title">快速上手</h2></div>
+    <ol class="onboarding-steps">
+      <li data-i18n="agents.onboarding.step1">新建 agent 并选择 CLI 类型（Claude Code / Codex / OpenCode / Gemini）。</li>
+      <li data-i18n="agents.onboarding.step2">在「认证与连接」填写 API Key / Base URL，可点「使用检测到的值」自动填入。</li>
+      <li data-i18n="agents.onboarding.step3">保存后用 occ run --agent &lt;名称&gt; 调用，或在常规标签设为默认 agent。</li>
+    </ol>
+  </div>
   <p class="muted" data-i18n="agents.desc" style="margin-bottom:14px;">同一个 CLI 可以有多个 agent，例如 Claude Code 同时用 Anthropic 官方和 DeepSeek 兼容后端。在 config_dir 和 env 中配置每个 agent 自己的系统目录、API key / base URL / model。</p>
   <div class="agents-layout">
     <aside class="agents-side">
@@ -1568,7 +1655,9 @@ const SAVE_PATH = {save_path_json};
 const DETECTED = {detected_json};
 let CONFIG = {initial_json};
 let SELECTED_AGENT_INDEX = null;
+let AGENT_STEP = 0;
 let RAW_TOML_DIRTY = false;
+let DIRTY = false;
 
 const CLI_DEFS = [
   {{
@@ -1580,53 +1669,53 @@ const CLI_DEFS = [
     effort_options: ['', 'low', 'medium', 'high', 'xhigh', 'max', 'auto'],
     model_placeholder: 'sonnet / opus / claude-sonnet-4-6',
     env: [
-      {{ key: 'ANTHROPIC_AUTH_TOKEN', group: 'auth', label_zh: 'Auth Token', label_en: 'Auth Token', secret: true,
-         desc_zh: 'Bearer token，常用于第三方 Anthropic 兼容网关；会写入 Authorization: Bearer。',
-         desc_en: 'Bearer token, commonly used by third-party Anthropic-compatible gateways.' }},
-      {{ key: 'ANTHROPIC_API_KEY', group: 'auth', label_zh: 'API Key', label_en: 'API Key', secret: true,
-         desc_zh: 'Anthropic 官方 API Key，或第三方兼容后端的 token。',
-         desc_en: 'Anthropic official API key, or token for an Anthropic-compatible proxy.' }},
-      {{ key: 'ANTHROPIC_BASE_URL', group: 'auth', label_zh: 'Base URL', label_en: 'Base URL',
-         desc_zh: 'Anthropic Messages API 入口；第三方兼容服务通常填写到 /anthropic 或 /v1 前的地址。',
+      {{ key: 'ANTHROPIC_AUTH_TOKEN', group: 'auth', primary: true, label_zh: '认证令牌', label_en: 'Auth Token', secret: true,
+         desc_zh: 'Claude Code 默认的认证方式，以 Bearer 形式发送。',
+         desc_en: 'Default auth method for Claude Code, sent as Bearer token.' }},
+      {{ key: 'ANTHROPIC_BASE_URL', group: 'auth', primary: true, label_zh: '接口地址', label_en: 'Base URL',
+         desc_zh: '服务入口地址；第三方兼容服务通常填到 /v1 之前的部分。',
          desc_en: 'Anthropic Messages API endpoint; compatible gateways often use an /anthropic or /v1 endpoint.' }},
+      {{ key: 'ANTHROPIC_API_KEY', group: 'auth', label_zh: 'API 密钥', label_en: 'API Key', secret: true,
+         desc_zh: 'Anthropic 官方 SDK 风格的密钥；Claude Code 默认用认证令牌，此项一般不用填。',
+         desc_en: 'Anthropic official SDK-style API key; Claude Code uses the auth token by default, so this is usually not needed.' }},
       {{ key: 'ANTHROPIC_MODEL', group: 'model', label_zh: '主模型', label_en: 'Main model',
-         desc_zh: '覆盖 Claude Code 主模型；occ 的 agent.model / --model 仍有更高优先级。',
+         desc_zh: '覆盖主模型；上方的主模型字段优先级更高。',
          desc_en: 'Overrides Claude Code main model; occ agent.model / --model still has higher priority.' }},
-      {{ key: 'ANTHROPIC_DEFAULT_SONNET_MODEL', group: 'model', label_zh: '默认 Sonnet 模型', label_en: 'Default Sonnet model',
-         desc_zh: '用于 /model 中 Sonnet 档位的默认模型，适合第三方模型映射。',
+      {{ key: 'ANTHROPIC_DEFAULT_SONNET_MODEL', group: 'model', label_zh: 'Sonnet 档位模型', label_en: 'Default Sonnet model',
+         desc_zh: '快速档位默认模型，适合第三方模型映射。',
          desc_en: 'Default model for the Sonnet tier in /model, useful for third-party model mapping.' }},
-      {{ key: 'ANTHROPIC_DEFAULT_OPUS_MODEL', group: 'model', label_zh: '默认 Opus 模型', label_en: 'Default Opus model',
-         desc_zh: '用于 /model 中 Opus 档位的默认模型。',
+      {{ key: 'ANTHROPIC_DEFAULT_OPUS_MODEL', group: 'model', label_zh: 'Opus 档位模型', label_en: 'Default Opus model',
+         desc_zh: '高能力档位默认模型。',
          desc_en: 'Default model for the Opus tier in /model.' }},
-      {{ key: 'ANTHROPIC_DEFAULT_HAIKU_MODEL', group: 'model', label_zh: '默认 Haiku 模型', label_en: 'Default Haiku model',
-         desc_zh: '用于 /model 中 Haiku 档位的默认模型。',
+      {{ key: 'ANTHROPIC_DEFAULT_HAIKU_MODEL', group: 'model', label_zh: 'Haiku 档位模型', label_en: 'Default Haiku model',
+         desc_zh: '轻量档位默认模型。',
          desc_en: 'Default model for the Haiku tier in /model.' }},
-      {{ key: 'ANTHROPIC_SMALL_FAST_MODEL', group: 'model', label_zh: '小/快模型', label_en: 'Small/fast model',
-         desc_zh: '后台任务和轻量任务模型；通常映射到 Haiku 或低成本快速模型。',
+      {{ key: 'ANTHROPIC_SMALL_FAST_MODEL', group: 'model', label_zh: '轻量模型', label_en: 'Small/fast model',
+         desc_zh: '后台任务用的小模型，通常映射到低成本快速模型。',
          desc_en: 'Model for background and lightweight tasks; usually maps to Haiku or a low-cost fast model.' }},
       {{ key: 'CLAUDE_CODE_EFFORT_LEVEL', group: 'behavior', label_zh: '思考强度', label_en: 'Effort level',
          options: ['', 'low', 'medium', 'high', 'xhigh', 'max', 'auto'],
-         desc_zh: 'Claude Code 官方 effort 级别；等价于 /effort 或 settings.json 的 effortLevel。',
+         desc_zh: '官方思考强度级别。',
          desc_en: 'Claude Code effort level; equivalent to /effort or settings.json effortLevel.' }},
-      {{ key: 'ENABLE_TOOL_SEARCH', group: 'behavior', label_zh: '启用 Tool Search', label_en: 'Enable Tool Search',
+      {{ key: 'ENABLE_TOOL_SEARCH', group: 'behavior', label_zh: '启用工具搜索', label_en: 'Enable Tool Search',
          kind: 'checkbox', checked_value: 'true',
          desc_zh: '启用 MCP 工具搜索能力。',
          desc_en: 'Enables MCP tool search.' }},
       {{ key: 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS', group: 'behavior', label_zh: '启用 Agent Teams', label_en: 'Enable Agent Teams',
          kind: 'checkbox', checked_value: '1',
-         desc_zh: '启用 Claude Code 实验性的 agent teams。',
+         desc_zh: '启用实验性的多 agent 协作。',
          desc_en: 'Enables Claude Code experimental agent teams.' }},
       {{ key: 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC', group: 'behavior', label_zh: '禁用非必要流量', label_en: 'Disable nonessential traffic',
          kind: 'checkbox', checked_value: '1',
-         desc_zh: '关闭遥测、错误上报、反馈等非必要网络流量。',
+         desc_zh: '关闭遥测、错误上报等非必要网络流量。',
          desc_en: 'Disables telemetry, error reporting, feedback, and other nonessential traffic.' }},
       {{ key: 'CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK', group: 'behavior', label_zh: '禁用非流式回退', label_en: 'Disable non-streaming fallback',
          kind: 'checkbox', checked_value: '1',
-         desc_zh: '强制避免请求失败时回退到非流式响应。',
+         desc_zh: '请求失败时不回退到非流式响应。',
          desc_en: 'Prevents fallback to non-streaming responses.' }},
       {{ key: 'DISABLE_AUTOUPDATER', group: 'behavior', label_zh: '禁用自动更新', label_en: 'Disable auto updater',
          kind: 'checkbox', checked_value: '1',
-         desc_zh: '禁用 Claude Code 自动更新检查。',
+         desc_zh: '禁用自动更新检查。',
          desc_en: 'Disables Claude Code auto-update checks.' }},
     ],
   }},
@@ -1636,34 +1725,34 @@ const CLI_DEFS = [
     default_command: 'codex',
     config_env: 'CODEX_HOME',
     supports_effort: true,
-    effort_options: ['', 'minimal', 'low', 'medium', 'high'],
+    effort_options: ['', 'minimal', 'medium', 'high', 'xhigh'],
     model_placeholder: 'gpt-5-codex / gpt-5 / o3',
     env: [
-      {{ key: 'OPENAI_API_KEY', group: 'auth', label_zh: 'API Key', label_en: 'API Key', secret: true,
-         desc_zh: 'OpenAI API Key；也可作为 OpenAI 兼容 provider 的 env_key 指向值。',
+      {{ key: 'OPENAI_API_KEY', group: 'auth', primary: true, label_zh: 'API 密钥', label_en: 'API Key', secret: true,
+         desc_zh: 'OpenAI API 密钥。',
          desc_en: 'OpenAI API key; can also be the value referenced by a compatible provider env_key.' }},
-      {{ key: 'CODEX_MODEL_PROVIDER', group: 'provider', label_zh: '模型 Provider', label_en: 'Model provider',
-         desc_zh: 'Codex config.toml 的 model_provider；留空时使用 Codex 默认 provider。',
-         desc_en: 'Codex config.toml model_provider; leave blank to use the Codex default provider.' }},
-      {{ key: 'OPENAI_BASE_URL', group: 'provider', label_zh: 'Provider Base URL', label_en: 'Provider Base URL',
-         desc_zh: 'Codex model_providers.<provider>.base_url；occ 运行 Codex 时会自动转换为 -c 覆盖。',
+      {{ key: 'OPENAI_BASE_URL', group: 'auth', primary: true, label_zh: '接口地址', label_en: 'Base URL',
+         desc_zh: '服务入口地址；留空则使用默认。',
          desc_en: 'Codex model_providers.<provider>.base_url; occ converts it to a -c override when running Codex.' }},
-      {{ key: 'CODEX_PROVIDER_ENV_KEY', group: 'provider', label_zh: 'Provider env_key', label_en: 'Provider env_key',
-         desc_zh: 'Codex provider 读取 key 的环境变量名，例如 OPENAI_API_KEY 或 AZURE_OPENAI_API_KEY。',
+      {{ key: 'CODEX_MODEL_PROVIDER', group: 'provider', label_zh: '模型服务商', label_en: 'Model provider',
+         desc_zh: '指定使用哪个服务商；留空时使用默认。',
+         desc_en: 'Codex config.toml model_provider; leave blank to use the Codex default provider.' }},
+      {{ key: 'CODEX_PROVIDER_ENV_KEY', group: 'provider', label_zh: '密钥变量名', label_en: 'Provider env_key',
+         desc_zh: '服务商读取密钥时用的环境变量名。',
          desc_en: 'Environment variable name used by the Codex provider, e.g. OPENAI_API_KEY or AZURE_OPENAI_API_KEY.' }},
-      {{ key: 'CODEX_WIRE_API', group: 'provider', label_zh: 'Wire API', label_en: 'Wire API',
+      {{ key: 'CODEX_WIRE_API', group: 'provider', label_zh: '接口协议', label_en: 'Wire API',
          options: ['', 'responses', 'chat'],
-         desc_zh: 'Codex provider 的 wire_api，常见为 responses 或 chat。',
+         desc_zh: '与服务商通信的协议类型。',
          desc_en: 'Codex provider wire_api, commonly responses or chat.' }},
-      {{ key: 'AZURE_OPENAI_API_KEY', group: 'provider', label_zh: 'Azure OpenAI API Key', label_en: 'Azure OpenAI API Key', secret: true,
-         desc_zh: 'Azure provider 常用的 env_key；config.toml 中 env_key 应指向这个变量名。',
+      {{ key: 'AZURE_OPENAI_API_KEY', group: 'provider', label_zh: 'Azure 密钥', label_en: 'Azure OpenAI API Key', secret: true,
+         desc_zh: '使用 Azure 服务时的密钥。',
          desc_en: 'Common env_key for Azure providers; config.toml env_key should point to this variable name.' }},
       {{ key: 'OPENAI_ORG_ID', group: 'optional', label_zh: '组织 ID', label_en: 'Organization ID',
          desc_zh: '可选，OpenAI 组织 ID。', desc_en: 'Optional OpenAI organization ID.' }},
       {{ key: 'OPENAI_PROJECT_ID', group: 'optional', label_zh: '项目 ID', label_en: 'Project ID',
          desc_zh: '可选，OpenAI 项目 ID。', desc_en: 'Optional OpenAI project ID.' }},
-      {{ key: 'OPENAI_TIMEOUT_MS', group: 'optional', label_zh: '请求超时毫秒', label_en: 'Request timeout ms',
-         desc_zh: '可选，OpenAI SDK 常用请求超时；Codex provider 网络重试仍以 config.toml 为准。',
+      {{ key: 'OPENAI_TIMEOUT_MS', group: 'optional', label_zh: '请求超时（毫秒）', label_en: 'Request timeout ms',
+         desc_zh: '可选，单次请求超时时间。',
          desc_en: 'Optional common OpenAI SDK request timeout; Codex provider retry tuning still comes from config.toml.' }},
     ],
   }},
@@ -1675,43 +1764,43 @@ const CLI_DEFS = [
     supports_effort: false,
     model_placeholder: 'anthropic/claude-sonnet-4-5 / myprovider/my-model',
     env: [
-      {{ key: 'OPENCODE_PROVIDER_ID', group: 'provider', label_zh: 'Provider ID', label_en: 'Provider ID',
-         desc_zh: 'OpenCode provider.<id> 的 id，例如 openai、anthropic、openrouter、myprovider；留空时 baseURL/key 会映射到 openai。',
-         desc_en: 'OpenCode provider.<id>, e.g. openai, anthropic, openrouter, myprovider; if blank, baseURL/key map to openai.' }},
-      {{ key: 'OPENCODE_PROVIDER_NPM', group: 'provider', label_zh: 'Provider npm adapter', label_en: 'Provider npm adapter',
-         options: ['', '@ai-sdk/openai-compatible', '@ai-sdk/openai', '@ai-sdk/anthropic', '@ai-sdk/google'],
-         desc_zh: '自定义 provider 的 AI SDK 包；OpenAI 兼容 /v1/chat/completions 通常使用 @ai-sdk/openai-compatible，Responses API 可用 @ai-sdk/openai。',
-         desc_en: 'AI SDK package for a custom provider; OpenAI-compatible /v1/chat/completions usually uses @ai-sdk/openai-compatible, Responses API can use @ai-sdk/openai.' }},
-      {{ key: 'OPENCODE_PROVIDER_NAME', group: 'provider', label_zh: 'Provider 显示名', label_en: 'Provider display name',
-         desc_zh: '可选，OpenCode UI 中显示的 provider 名称。',
-         desc_en: 'Optional display name shown in the OpenCode UI.' }},
-      {{ key: 'OPENCODE_BASE_URL', group: 'auth', label_zh: 'Provider Base URL', label_en: 'Provider Base URL',
-         desc_zh: 'OpenCode provider.<id>.options.baseURL；occ 运行 OpenCode 时会写入 OPENCODE_CONFIG_CONTENT 覆盖。',
-         desc_en: 'OpenCode provider.<id>.options.baseURL; occ writes an OPENCODE_CONFIG_CONTENT override when running OpenCode.' }},
-      {{ key: 'OPENCODE_API_KEY', group: 'auth', label_zh: 'Provider API Key', label_en: 'Provider API Key', secret: true,
-         desc_zh: 'OpenCode provider.<id>.options.apiKey；运行时通过 {{env:OPENCODE_API_KEY}} 引用，避免把 key 直接写进 inline JSON。',
+      {{ key: 'OPENCODE_API_KEY', group: 'auth', primary: true, label_zh: 'API 密钥', label_en: 'API Key', secret: true,
+         desc_zh: '服务商 API 密钥。',
          desc_en: 'OpenCode provider.<id>.options.apiKey; referenced as {{env:OPENCODE_API_KEY}} at runtime to avoid embedding the key in inline JSON.' }},
-      {{ key: 'OPENCODE_PROVIDER_MODEL_ID', group: 'model', label_zh: 'Provider 模型 ID', label_en: 'Provider model ID',
-         desc_zh: '自定义 provider 的 models.<model-id>；如果 agent.model 是 provider/model，也可以留空自动推导。',
+      {{ key: 'OPENCODE_BASE_URL', group: 'auth', primary: true, label_zh: '接口地址', label_en: 'Base URL',
+         desc_zh: '服务入口地址。',
+         desc_en: 'OpenCode provider.<id>.options.baseURL; occ writes an OPENCODE_CONFIG_CONTENT override when running OpenCode.' }},
+      {{ key: 'OPENCODE_PROVIDER_ID', group: 'provider', label_zh: '服务商 ID', label_en: 'Provider ID',
+         desc_zh: '自定义服务商的标识，留空时默认映射到 openai。',
+         desc_en: 'OpenCode provider.<id>, e.g. openai, anthropic, openrouter, myprovider; if blank, baseURL/key map to openai.' }},
+      {{ key: 'OPENCODE_PROVIDER_NPM', group: 'provider', label_zh: '服务商适配包', label_en: 'Provider npm adapter',
+         options: ['', '@ai-sdk/openai-compatible', '@ai-sdk/openai', '@ai-sdk/anthropic', '@ai-sdk/google'],
+         desc_zh: '自定义服务商用的适配包。',
+         desc_en: 'AI SDK package for a custom provider; OpenAI-compatible /v1/chat/completions usually uses @ai-sdk/openai-compatible, Responses API can use @ai-sdk/openai.' }},
+      {{ key: 'OPENCODE_PROVIDER_NAME', group: 'provider', label_zh: '服务商显示名', label_en: 'Provider display name',
+         desc_zh: '可选，界面中显示的服务商名称。',
+         desc_en: 'Optional display name shown in the OpenCode UI.' }},
+      {{ key: 'OPENCODE_PROVIDER_MODEL_ID', group: 'model', label_zh: '服务商模型 ID', label_en: 'Provider model ID',
+         desc_zh: '自定义服务商的模型标识；如果主模型已是「服务商/模型」格式可留空。',
          desc_en: 'Custom provider models.<model-id>; can be left blank if agent.model is provider/model.' }},
       {{ key: 'OPENCODE_MODEL_DISPLAY_NAME', group: 'model', label_zh: '模型显示名', label_en: 'Model display name',
-         desc_zh: '可选，OpenCode /models 中显示的模型名称。',
+         desc_zh: '可选，模型列表中显示的名称。',
          desc_en: 'Optional model name shown by OpenCode /models.' }},
-      {{ key: 'OPENCODE_SMALL_MODEL', group: 'model', label_zh: 'Small model', label_en: 'Small model',
-         desc_zh: 'OpenCode small_model，用于标题生成等轻量任务，例如 openai/gpt-5-nano。',
+      {{ key: 'OPENCODE_SMALL_MODEL', group: 'model', label_zh: '轻量模型', label_en: 'Small model',
+         desc_zh: '标题生成等轻量任务用的模型。',
          desc_en: 'OpenCode small_model for lightweight tasks such as title generation, e.g. openai/gpt-5-nano.' }},
-      {{ key: 'OPENCODE_TIMEOUT_MS', group: 'options', label_zh: '请求超时毫秒', label_en: 'Request timeout ms',
-         desc_zh: 'OpenCode provider.<id>.options.timeout；填写正整数毫秒，或 false 禁用超时。',
+      {{ key: 'OPENCODE_TIMEOUT_MS', group: 'options', label_zh: '请求超时（毫秒）', label_en: 'Request timeout ms',
+         desc_zh: '单次请求超时；填 false 可禁用。',
          desc_en: 'OpenCode provider.<id>.options.timeout; enter a positive integer in ms, or false to disable timeout.' }},
-      {{ key: 'OPENCODE_CHUNK_TIMEOUT_MS', group: 'options', label_zh: '流式 chunk 超时毫秒', label_en: 'Stream chunk timeout ms',
-         desc_zh: 'OpenCode provider.<id>.options.chunkTimeout，控制流式响应两段 chunk 之间的超时。',
+      {{ key: 'OPENCODE_CHUNK_TIMEOUT_MS', group: 'options', label_zh: '流式超时（毫秒）', label_en: 'Stream chunk timeout ms',
+         desc_zh: '流式响应两段内容之间的超时。',
          desc_en: 'OpenCode provider.<id>.options.chunkTimeout, timeout between streamed response chunks.' }},
-      {{ key: 'OPENCODE_SET_CACHE_KEY', group: 'options', label_zh: '启用 cache key', label_en: 'Enable cache key',
+      {{ key: 'OPENCODE_SET_CACHE_KEY', group: 'options', label_zh: '启用缓存键', label_en: 'Enable cache key',
          kind: 'checkbox', checked_value: 'true',
-         desc_zh: 'OpenCode provider.<id>.options.setCacheKey。',
+         desc_zh: '启用请求缓存。',
          desc_en: 'OpenCode provider.<id>.options.setCacheKey.' }},
       {{ key: 'OPENCODE_CONFIG', group: 'other', label_zh: '自定义配置文件', label_en: 'Custom config file',
-         desc_zh: '可选，OpenCode 官方 OPENCODE_CONFIG，指向自定义 opencode.json 文件。',
+         desc_zh: '可选，指向自定义配置文件。',
          desc_en: 'Optional official OPENCODE_CONFIG path to a custom opencode.json file.' }},
     ],
   }},
@@ -1723,14 +1812,14 @@ const CLI_DEFS = [
     supports_effort: false,
     model_placeholder: 'gemini-2.5-pro',
     env: [
-      {{ key: 'GEMINI_API_KEY', group: 'auth', label_zh: 'API Key', label_en: 'API Key', secret: true,
-         desc_zh: 'Google AI Studio 的 Gemini API Key。', desc_en: 'Gemini API key from Google AI Studio.' }},
-      {{ key: 'GOOGLE_API_KEY', group: 'auth', label_zh: 'Google API Key', label_en: 'Google API Key', secret: true,
-         desc_zh: '可选，部分场景使用 Google Cloud 的通用 API Key。', desc_en: 'Optional, generic Google Cloud API key.' }},
+      {{ key: 'GEMINI_API_KEY', group: 'auth', primary: true, label_zh: 'API 密钥', label_en: 'API Key', secret: true,
+         desc_zh: 'Google AI Studio 的 Gemini 密钥。', desc_en: 'Gemini API key from Google AI Studio.' }},
+      {{ key: 'GOOGLE_API_KEY', group: 'auth', label_zh: 'Google 通用密钥', label_en: 'Google API Key', secret: true,
+         desc_zh: '可选，部分场景使用的通用密钥。', desc_en: 'Optional, generic Google Cloud API key.' }},
       {{ key: 'GOOGLE_CLOUD_PROJECT', group: 'optional', label_zh: 'Google Cloud 项目', label_en: 'Google Cloud Project',
-         desc_zh: '可选，Google Cloud 项目 ID，用于 Vertex AI 等场景。', desc_en: 'Optional Google Cloud project ID for Vertex AI etc.' }},
+         desc_zh: '可选，用于 Vertex AI 等场景。', desc_en: 'Optional Google Cloud project ID for Vertex AI etc.' }},
       {{ key: 'GOOGLE_CLOUD_LOCATION', group: 'optional', label_zh: 'Google Cloud 区域', label_en: 'Google Cloud Location',
-         desc_zh: '可选，Google Cloud 区域，例如 us-central1。', desc_en: 'Optional Google Cloud region, e.g. us-central1.' }},
+         desc_zh: '可选，例如 us-central1。', desc_en: 'Optional Google Cloud region, e.g. us-central1.' }},
     ],
   }},
 ];
@@ -1759,7 +1848,7 @@ const I18N = {{
     "tab.agents": "Agents",
     "tab.toml_editor": "TOML 编辑器",
     "toml_editor.title": "原始 TOML 编辑与同步",
-    "toml_editor.desc": "可以直接在这里查看和编辑底层 TOML 配置内容。支持双向实时同步。",
+    "toml_editor.desc": "直接查看与编辑底层 TOML。切到本标签会自动从表单同步最新内容；编辑后点「同步到表单」把改动写回表单，点「从表单同步」丢弃改动并重新拉取。",
     "action.sync_to_form": "⚡ 同步到表单",
     "action.sync_from_form": "🔄 从表单同步",
     "tab.context": "上下文",
@@ -1767,12 +1856,14 @@ const I18N = {{
     "general.basic.desc": "控制 occ 自身行为的全局选项。",
     "general.proxy": "代理转发",
     "general.proxy.desc": "是否把代理相关环境变量转发给子 CLI。",
-    "field.version": "版本",
+    "field.version": "配置版本",
+    "field.version.hint": "配置文件版本号，通常不需要手动修改。",
     "field.default_agent": "默认 agent",
-    "field.default_agent.hint": "未指定 --agent / --cli 时使用的 agent。",
+    "field.default_agent.hint": "运行 occ 但未指定 --agent / --cli 时默认调用的 agent。",
     "field.doc_root": "运行记录目录",
+    "field.doc_root.hint": "occ 运行日志与记录的存放目录，默认 ~/.occ。",
     "field.timeout": "默认超时",
-    "field.timeout.hint": "支持 none / 60s / 5m / 2h。",
+    "field.timeout.hint": "单次任务最长运行时间，超时自动结束。支持 none / 60s / 5m / 2h。",
     "field.proxy_enabled": "启用代理转发",
     "field.proxy_keys": "转发的环境变量（每行一个）",
     "ph.doc_root": "~/.occ",
@@ -1796,14 +1887,36 @@ const I18N = {{
     "agents.desc": "同一个 CLI 可以有多个 agent，例如 Claude Code 同时用 Anthropic 官方和 DeepSeek 兼容后端。在 config_dir 和 env 中配置每个 agent 自己的系统目录、API key / base URL / model。",
     "agents.empty": "尚未选择 agent。",
     "agents.untitled": "未命名 agent",
+    "agents.onboarding.title": "快速上手",
+    "agents.onboarding.step1": "新建 agent 并选择 CLI 类型（Claude Code / Codex / OpenCode / Gemini）。",
+    "agents.onboarding.step2": "在「认证与连接」填写 API Key / Base URL，可点「使用检测到的值」自动填入。",
+    "agents.onboarding.step3": "保存后用 occ run --agent &lt;名称&gt; 调用，或在常规标签设为默认 agent。",
     "context.title": "配置上下文",
     "context.desc": "当前运行时检测到的路径与配置来源（只读）。",
-    "preview.title": "预览（保存前）",
+    "preview.title": "预览 TOML（保存前）",
     "agent.section.basic": "基础",
     "agent.section.command": "可执行文件",
     "agent.section.system": "CLI 系统目录 / 隔离",
     "agent.section.env": "常用环境变量",
     "agent.section.env_extra": "其它 env（每行 KEY=VALUE）",
+    "wizard.step1": "基础信息",
+    "wizard.step2": "认证与连接",
+    "wizard.step3": "模型与行为",
+    "wizard.step4": "高级（可选）",
+    "wizard.step1.desc": "先选择这个 agent 用哪个 CLI，再起一个名字。这两项是必填的。",
+    "wizard.step2.desc": "配置 API Key / Base URL 等认证信息。可点「使用检测到的值」从该 CLI 已有配置中自动填入。",
+    "wizard.step3.desc": "设置主模型和推理强度（如果该 CLI 支持）。其它模型档位映射也在这里。",
+    "wizard.step4.desc": "可执行文件路径、系统目录隔离、命令行参数透传等进阶选项。大多数情况保持默认即可。",
+    "wizard.prev": "上一步",
+    "wizard.next": "下一步",
+    "wizard.finish": "完成",
+    "wizard.need_cli_first": "请先在「基础信息」中选择 CLI 类型",
+    "wizard.summary.cli": "CLI",
+    "wizard.summary.auth": "认证",
+    "wizard.summary.model": "模型",
+    "wizard.summary.configured": "已配置",
+    "wizard.summary.missing": "未配置",
+    "wizard.summary.optional": "可选",
     "env_group.auth": "认证与连接",
     "env_group.provider": "Provider 配置",
     "env_group.model": "模型设置",
@@ -1811,46 +1924,61 @@ const I18N = {{
     "env_group.options": "高级选项",
     "env_group.optional": "可选配置",
     "env_group.other": "其它",
+    "env_group.more": "更多认证选项",
     "agent.section.advanced": "高级 / 透传参数",
-    "agent.name": "名称 *",
-    "agent.cli_type": "CLI 类型 *",
-    "agent.aliases": "Agent 别名（每行一个）",
-    "agent.aliases.hint": "用于 --agent、--agents 和 /agent，精确选择这个 agent。",
-    "agent.command": "命令名称（例如 claude）",
-    "agent.model": "主模型名称 (model)",
-    "agent.model.hint": "保存到 agent.model，运行时会转换为当前 CLI 的 --model。",
-    "agent.effort": "推理/思考强度 (effort)",
-    "agent.effort.hint": "保存到 agent.effort，运行时会转换为当前 CLI 支持的 effort 参数。",
-    "agent.path": "可执行文件路径 (覆盖 command)",
-    "agent.system_mode": "CLI 系统目录模式",
-    "agent.system_mode.default": "使用默认 CLI 系统目录",
-    "agent.system_mode.isolated": "使用隔离 config_dir",
-    "agent.system_mode.default_note": "默认模式不设置隔离目录，子 CLI 使用它平时自己的登录态和配置目录，环境变量默认继承父进程。",
-    "agent.system_mode.isolated_note": "隔离模式会设置 config_dir，并把子进程环境切到 strict；agent.env 会覆盖父环境，env_allowlist 只放行必要父变量。",
-    "agent.system_env": "隔离时设置的 CLI 环境变量",
+    "agent.name": "名称",
+    "agent.name.hint": "这个 agent 的唯一名字，保存后用 occ run --agent <名称> 调用。建议简短好记，比如 claude-pro、deepseek。",
+    "agent.cli_type.hint": "选择这个 agent 调用的 CLI，决定后续认证、模型等字段的形态。",
+    "agent.command.hint": "命令名，例如 claude；Windows 上会自动补 .cmd。留空则使用 CLI 默认命令。",
+    "agent.path.hint": "直接指定可执行文件路径，会覆盖 command。一般不用填。",
+    "agent.env_mode.hint": "inherit 完全继承父进程环境；strict 仅放行白名单内变量，更安全。",
+    "agent.env_allowlist.hint": "strict 模式下放行的父进程环境变量名，每行一个。",
+    "agent.default_timeout.hint": "该 agent 单次任务超时，覆盖全局默认。支持 none / 60s / 5m / 2h。",
+    "agent.args_strategy.hint": "builtin 用 occ 内置参数；append 追加；override 完全用 args 覆盖。",
+    "agent.prompt_via.hint": "prompt 内容如何传给子 CLI。默认自动选择即可。",
+    "agent.args.hint": "override 策略下使用的完整参数列表，每行一个。",
+    "agent.extra_args.hint": "追加到内置参数之后的额外参数，每行一个。",
+    "agent.interactive_args.hint": "交互模式额外参数，每行一个。",
+    "agent.non_interactive_args.hint": "非交互模式额外参数，每行一个。",
+    "agent.resume_args.hint": "会话恢复时使用的参数，每行一个。",
+    "agent.cli_type": "CLI 类型",
+    "agent.aliases": "别名",
+    "agent.aliases.hint": "名称的简称，同样可以用 --agent 调用。每行一个，一般不用填。",
+    "agent.command": "命令名",
+    "agent.model": "主模型",
+    "agent.model.hint": "运行时传给 CLI 的模型名，比如 sonnet、gpt-5-codex。",
+    "agent.effort": "思考强度",
+    "agent.effort.hint": "控制推理深度，越高越深入但越慢。",
+    "agent.path": "可执行文件路径",
+    "agent.system_mode": "系统目录模式",
+    "agent.system_mode.default": "使用默认目录",
+    "agent.system_mode.isolated": "使用隔离目录",
+    "agent.system_mode.default_note": "默认模式不设隔离目录，子 CLI 使用它平时自己的登录态和配置目录，环境变量默认继承父进程。",
+    "agent.system_mode.isolated_note": "隔离模式会设置独立目录，并把子进程环境切到严格模式；agent 里的环境变量会覆盖父环境，只放行白名单内的父变量。",
+    "agent.system_env": "隔离时设置的变量",
     "action.use_suggested_dir": "使用建议目录",
-    "agent.config_dir": "CLI 系统配置目录 (config_dir)",
-    "agent.env_mode": "环境变量传递模式 (env_mode)",
-    "agent.env_mode.inherit": "完全继承父进程环境 (inherit)",
-    "agent.env_mode.strict": "严格沙箱模式，仅继承白名单 (strict)",
-    "agent.env_allowlist": "环境变量继承白名单 (env_allowlist，每行一个)",
-    "agent.default_timeout": "默认运行超时时间 (default_timeout)",
-    "agent.args_strategy": "命令行参数替换策略 (args_strategy)",
-    "agent.args_strategy.builtin": "内置默认策略 (builtin)",
-    "agent.args_strategy.append": "在后面追加 (append)",
-    "agent.args_strategy.override": "完全覆盖默认 (override)",
-    "agent.prompt_via": "Prompt 输入传输通路 (prompt_via)",
-    "agent.prompt_via.default": "内置默认传输通路",
-    "agent.prompt_via.stdin": "标准输入流 (stdin)",
-    "agent.prompt_via.arg": "直接命令行参数 (arg)",
-    "agent.prompt_via.file": "临时文件输入 (file)",
-    "agent.prompt_via.file_indirection": "临时文件间接引用 (file-indirection)",
-    "agent.prompt_via.arg_or_file_indirection": "命令行参数或文件间接引用自适应",
-    "agent.args": "命令行启动参数列表 (args，完全覆盖，每行一个)",
-    "agent.extra_args": "追加启动参数列表 (extra_args，每行一个)",
-    "agent.interactive_args": "交互模式参数列表 (interactive_args，每行一个)",
-    "agent.non_interactive_args": "非交互模式参数列表 (non_interactive_args，每行一个)",
-    "agent.resume_args": "会话恢复参数列表 (resume_args，每行一个)",
+    "agent.config_dir": "系统配置目录",
+    "agent.env_mode": "环境变量传递模式",
+    "agent.env_mode.inherit": "完全继承父进程环境",
+    "agent.env_mode.strict": "严格模式，仅继承白名单",
+    "agent.env_allowlist": "环境变量白名单（每行一个）",
+    "agent.default_timeout": "默认超时",
+    "agent.args_strategy": "参数策略",
+    "agent.args_strategy.builtin": "内置默认",
+    "agent.args_strategy.append": "追加",
+    "agent.args_strategy.override": "完全覆盖",
+    "agent.prompt_via": "Prompt 传输方式",
+    "agent.prompt_via.default": "自动选择",
+    "agent.prompt_via.stdin": "标准输入",
+    "agent.prompt_via.arg": "命令行参数",
+    "agent.prompt_via.file": "临时文件",
+    "agent.prompt_via.file_indirection": "文件间接引用",
+    "agent.prompt_via.arg_or_file_indirection": "参数或文件自适应",
+    "agent.args": "启动参数（完全覆盖，每行一个）",
+    "agent.extra_args": "追加参数（每行一个）",
+    "agent.interactive_args": "交互模式参数（每行一个）",
+    "agent.non_interactive_args": "非交互模式参数（每行一个）",
+    "agent.resume_args": "会话恢复参数（每行一个）",
     "agent.env_extra": "其它自定义环境变量（每行 KEY=VALUE）",
     "agent.env.detected_from": "检测到的默认配置来源：",
     "agent.env.detected_label": "已检测",
@@ -1900,7 +2028,7 @@ const I18N = {{
     "tab.agents": "Agents",
     "tab.toml_editor": "TOML Editor",
     "toml_editor.title": "Raw TOML Editor",
-    "toml_editor.desc": "Directly view and edit the raw underlying TOML configuration. Full bi-directional sync is supported.",
+    "toml_editor.desc": "View and edit the raw TOML directly. Switching to this tab auto-syncs from the form; after editing, click 'Sync to Form' to apply changes, or 'Sync from Form' to discard and re-pull.",
     "action.sync_to_form": "⚡ Sync to Form",
     "action.sync_from_form": "🔄 Sync from Form",
     "tab.context": "Context",
@@ -1908,12 +2036,14 @@ const I18N = {{
     "general.basic.desc": "Global options that control occ itself.",
     "general.proxy": "Proxy forwarding",
     "general.proxy.desc": "Whether to forward proxy env vars to child CLIs.",
-    "field.version": "Version",
+    "field.version": "Config version",
+    "field.version.hint": "Config file schema version; usually no need to change manually.",
     "field.default_agent": "Default agent",
-    "field.default_agent.hint": "Used when neither --agent nor --cli is given.",
+    "field.default_agent.hint": "Agent used when running occ without --agent / --cli.",
     "field.doc_root": "Run record directory",
+    "field.doc_root.hint": "Where occ stores run logs and records; defaults to ~/.occ.",
     "field.timeout": "Default timeout",
-    "field.timeout.hint": "Accepts none / 60s / 5m / 2h.",
+    "field.timeout.hint": "Max duration of a single task before auto-termination. Accepts none / 60s / 5m / 2h.",
     "field.proxy_enabled": "Enable proxy forwarding",
     "field.proxy_keys": "Forwarded env vars (one per line)",
     "ph.doc_root": "~/.occ",
@@ -1937,14 +2067,36 @@ const I18N = {{
     "agents.desc": "One CLI can have multiple agents (e.g. Claude Code with Anthropic and Claude Code with a DeepSeek-compatible proxy). Use config_dir and env to set per-agent system config, API key / base URL / model.",
     "agents.empty": "No agent selected.",
     "agents.untitled": "Untitled agent",
+    "agents.onboarding.title": "Quick start",
+    "agents.onboarding.step1": "Create an agent and pick a CLI type (Claude Code / Codex / OpenCode / Gemini).",
+    "agents.onboarding.step2": "Fill in API Key / Base URL under \"Authentication & Connection\"; click \"Use detected\" to auto-fill.",
+    "agents.onboarding.step3": "After saving, run occ run --agent &lt;name&gt;, or set it as the default agent in the General tab.",
     "context.title": "Config context",
     "context.desc": "Paths and config sources detected at runtime (read-only).",
-    "preview.title": "Preview (before saving)",
+    "preview.title": "TOML Preview (before saving)",
     "agent.section.basic": "Basics",
     "agent.section.command": "Executable",
     "agent.section.system": "CLI system root / isolation",
     "agent.section.env": "Common env vars",
     "agent.section.env_extra": "Other env (KEY=VALUE per line)",
+    "wizard.step1": "Basics",
+    "wizard.step2": "Auth & Connection",
+    "wizard.step3": "Model & Behavior",
+    "wizard.step4": "Advanced (optional)",
+    "wizard.step1.desc": "Pick which CLI this agent uses, then give it a name. Both are required.",
+    "wizard.step2.desc": "Set up API Key / Base URL. Click \"Use detected\" to auto-fill from the CLI's existing config.",
+    "wizard.step3.desc": "Set the main model and reasoning effort (if supported). Other model-tier mappings are here too.",
+    "wizard.step4.desc": "Executable path, system-dir isolation, arg passthrough, etc. Defaults work for most cases.",
+    "wizard.prev": "Previous",
+    "wizard.next": "Next",
+    "wizard.finish": "Finish",
+    "wizard.need_cli_first": "Please choose a CLI type in \"Basics\" first",
+    "wizard.summary.cli": "CLI",
+    "wizard.summary.auth": "Auth",
+    "wizard.summary.model": "Model",
+    "wizard.summary.configured": "set",
+    "wizard.summary.missing": "missing",
+    "wizard.summary.optional": "optional",
     "env_group.auth": "Authentication & Connection",
     "env_group.provider": "Provider Config",
     "env_group.model": "Model Settings",
@@ -1952,11 +2104,26 @@ const I18N = {{
     "env_group.options": "Advanced Options",
     "env_group.optional": "Optional",
     "env_group.other": "Other",
+    "env_group.more": "More auth options",
     "agent.section.advanced": "Advanced / passthrough",
-    "agent.name": "Name *",
-    "agent.cli_type": "CLI type *",
-    "agent.aliases": "Agent aliases (one per line)",
-    "agent.aliases.hint": "Used by --agent, --agents, and /agent to select this exact agent.",
+    "agent.name": "Name",
+    "agent.name.hint": "Unique name for this agent. Call it later with occ run --agent <name>. Keep it short, e.g. claude-pro, deepseek.",
+    "agent.cli_type.hint": "Which CLI this agent calls; determines the auth/model fields below.",
+    "agent.command.hint": "Command name, e.g. claude; .cmd is appended on Windows. Leave blank for the CLI default.",
+    "agent.path.hint": "Explicit executable path; overrides command. Rarely needed.",
+    "agent.env_mode.hint": "inherit takes the full parent env; strict only allows whitelisted vars (safer).",
+    "agent.env_allowlist.hint": "Parent env vars to pass through in strict mode, one per line.",
+    "agent.default_timeout.hint": "Per-agent task timeout, overrides the global default. Accepts none / 60s / 5m / 2h.",
+    "agent.args_strategy.hint": "builtin uses occ's built-in args; append adds extra_args; override replaces with args.",
+    "agent.prompt_via.hint": "How prompt text is delivered to the CLI. Default auto-selection is fine.",
+    "agent.args.hint": "Full arg list for override strategy, one per line.",
+    "agent.extra_args.hint": "Extra args appended after built-in args, one per line.",
+    "agent.interactive_args.hint": "Extra args for interactive mode, one per line.",
+    "agent.non_interactive_args.hint": "Extra args for non-interactive mode, one per line.",
+    "agent.resume_args.hint": "Args used when resuming a session, one per line.",
+    "agent.cli_type": "CLI type",
+    "agent.aliases": "Aliases",
+    "agent.aliases.hint": "Short names for this agent, also usable with --agent. One per line; usually not needed.",
     "agent.command": "command name (e.g. claude)",
     "agent.model": "model (agent-side label)",
     "agent.model.hint": "Saved as agent.model and translated to this CLI's --model at runtime.",
@@ -2037,6 +2204,7 @@ function lines(value) {{ return value ? value.split('\n').map(s => s.trim()).fil
 function joinLines(arr) {{ return Array.isArray(arr) ? arr.join('\n') : ''; }}
 
 function applyI18n() {{
+  // Only bind static text / placeholders here. Dynamic regions are (re)rendered by renderAll().
   document.documentElement.lang = LANG === 'en' ? 'en' : 'zh-CN';
   document.querySelectorAll('[data-i18n]').forEach(el => {{
     el.innerHTML = t(el.getAttribute('data-i18n'));
@@ -2046,12 +2214,6 @@ function applyI18n() {{
   }});
   document.getElementById('lang-zh').classList.toggle('active', LANG === 'zh-CN');
   document.getElementById('lang-en').classList.toggle('active', LANG === 'en');
-  refreshAgentList();
-  refreshMappingDropdowns();
-  renderAgentPane();
-  renderMetadata();
-  refreshDefaultAgentDropdown();
-  updateAgentCount();
 }}
 function applyTheme() {{
   document.documentElement.setAttribute('data-theme', THEME);
@@ -2059,8 +2221,8 @@ function applyTheme() {{
   document.getElementById('theme-dark').classList.toggle('active', THEME === 'dark');
 }}
 
-document.getElementById('lang-zh').addEventListener('click', () => {{ LANG = 'zh-CN'; localStorage.setItem('occ.lang', LANG); applyI18n(); }});
-document.getElementById('lang-en').addEventListener('click', () => {{ LANG = 'en'; localStorage.setItem('occ.lang', LANG); applyI18n(); }});
+document.getElementById('lang-zh').addEventListener('click', () => {{ LANG = 'zh-CN'; localStorage.setItem('occ.lang', LANG); applyI18n(); renderAll(); }});
+document.getElementById('lang-en').addEventListener('click', () => {{ LANG = 'en'; localStorage.setItem('occ.lang', LANG); applyI18n(); renderAll(); }});
 document.getElementById('theme-light').addEventListener('click', () => {{ THEME = 'light'; localStorage.setItem('occ.theme', THEME); applyTheme(); }});
 document.getElementById('theme-dark').addEventListener('click', () => {{ THEME = 'dark'; localStorage.setItem('occ.theme', THEME); applyTheme(); }});
 
@@ -2083,6 +2245,15 @@ document.getElementById('raw-toml-textarea').addEventListener('input', () => {{
 }});
 
 const statusEl = document.getElementById('status');
+
+// ---- unsaved-changes tracking ----
+function markDirty() {{ if (!DIRTY) {{ DIRTY = true; updateDirtyUI(); }} }}
+function clearDirty() {{ if (DIRTY) {{ DIRTY = false; updateDirtyUI(); }} }}
+function updateDirtyUI() {{
+  const btn = document.getElementById('save-btn');
+  if (btn) btn.classList.toggle('dirty', DIRTY);
+  document.title = (DIRTY ? '\u25CF ' : '') + 'One Code CLI Config';
+}}
 function showToast(text, type = 'success') {{
   const container = document.getElementById('toast-container');
   if (!container) return;
@@ -2136,6 +2307,7 @@ async function syncToForm() {{
   const parsed = await parseTomlText(toml);
   if (!parsed) return null;
   mergeConfig(parsed);
+  markDirty();
   RAW_TOML_DIRTY = false;
   showToast(LANG === 'en' ? 'TOML parsed and synced to form.' : 'TOML 已成功解析并同步到表单中。', 'success');
   return parsed;
@@ -2171,11 +2343,6 @@ async function configFromActiveEditor() {{
     return parsed;
   }}
   return collectConfig();
-}}
-
-function renderAll() {{
-  applyI18n();
-  applyTheme();
 }}
 
 // ---------------- agents data helpers ----------------
@@ -2223,16 +2390,42 @@ function refreshAgentList() {{
     item.className = 'agent-item' + (idx === SELECTED_AGENT_INDEX ? ' active' : '');
     const nameEl = document.createElement('div');
     nameEl.className = 'name';
-    nameEl.textContent = agent.name || t('agents.untitled');
+    const nameText = document.createElement('span');
+    nameText.textContent = agent.name || t('agents.untitled');
+    nameEl.appendChild(nameText);
+    if (agent.name && CONFIG.default_agent === agent.name) {{
+      const badge = document.createElement('span');
+      badge.className = 'default-badge';
+      badge.textContent = LANG === 'en' ? 'default' : '默认';
+      nameEl.appendChild(badge);
+    }}
     const cliEl = document.createElement('div');
     cliEl.className = 'cli';
     const def = CLI_DEFS_BY_ID[agent.cli_type];
-    cliEl.textContent = def ? def.label : (agent.cli_type || t('agent.no_cli'));
+    const authed = hasAuth(agent);
+    const dot = document.createElement('span');
+    dot.className = 'dot ' + (authed ? 'dot-ok' : 'dot-warn');
+    cliEl.appendChild(dot);
+    const cliText = document.createElement('span');
+    cliText.textContent = def ? def.label : (agent.cli_type || t('agent.no_cli'));
+    cliEl.appendChild(cliText);
     item.appendChild(nameEl);
     item.appendChild(cliEl);
-    item.addEventListener('click', () => {{ SELECTED_AGENT_INDEX = idx; refreshAgentList(); renderAgentPane(); }});
+    item.title = authed
+      ? (LANG === 'en' ? 'Authentication configured' : '已配置认证')
+      : (LANG === 'en' ? 'No authentication key set' : '未配置认证密钥');
+    item.addEventListener('click', () => {{ SELECTED_AGENT_INDEX = idx; AGENT_STEP = 0; refreshAgentList(); renderAgentPane(); }});
     list.appendChild(item);
   }});
+}}
+
+function hasAuth(agent) {{
+  const def = CLI_DEFS_BY_ID[agent.cli_type];
+  if (!def) return false;
+  // prefer primary secret fields; fall back to any secret field if none marked primary
+  const primarySecrets = def.env.filter(m => m.secret && m.primary);
+  const secrets = primarySecrets.length > 0 ? primarySecrets : def.env.filter(m => m.secret);
+  return secrets.some(m => agent.env && agent.env[m.key]);
 }}
 
 function updateAgentCount() {{
@@ -2277,9 +2470,11 @@ function buildAgentEditor(agent) {{
     const previousSuggestedDir = suggestedConfigDir(agent);
     agent.name = nameInput.value.trim();
     if (agent.config_dir === previousSuggestedDir) agent.config_dir = suggestedConfigDir(agent);
+    validateAgentName(agent, nameInput);
     refreshAgentList();
     refreshMappingDropdowns();
     refreshDefaultAgentDropdown();
+    updateStepSummary();
   }});
   head.appendChild(nameInput);
 
@@ -2291,11 +2486,13 @@ function buildAgentEditor(agent) {{
     copy.name = uniqueName((agent.name || 'agent') + '-copy');
     CONFIG.agents.splice(SELECTED_AGENT_INDEX + 1, 0, ensureAgentShape(copy));
     SELECTED_AGENT_INDEX += 1;
+    AGENT_STEP = 0;
     refreshAgentList();
     refreshMappingDropdowns();
     refreshDefaultAgentDropdown();
     renderAgentPane();
     updateAgentCount();
+    markDirty();
   }});
   head.appendChild(dupBtn);
 
@@ -2306,61 +2503,226 @@ function buildAgentEditor(agent) {{
     if (!confirm(t('msg.confirm_remove', agent.name || t('agents.untitled')))) return;
     CONFIG.agents.splice(SELECTED_AGENT_INDEX, 1);
     SELECTED_AGENT_INDEX = CONFIG.agents.length ? Math.min(SELECTED_AGENT_INDEX, CONFIG.agents.length - 1) : null;
+    AGENT_STEP = 0;
     refreshAgentList();
     refreshMappingDropdowns();
     refreshDefaultAgentDropdown();
     renderAgentPane();
     updateAgentCount();
+    markDirty();
   }});
   head.appendChild(delBtn);
   wrap.appendChild(head);
 
-  // --- section: basics ---
-  wrap.appendChild(sectionTitle(t('agent.section.basic'), '1'));
-  const basic = grid();
-  basic.appendChild(field(t('agent.cli_type'), buildCliTypeSelect(agent)));
-  basic.appendChild(field(t('agent.aliases'), buildTextarea(agent, 'aliases', {{ asLines: true }}), t('agent.aliases.hint')));
-  basic.appendChild(field(t('agent.model'), buildModelField(agent), t('agent.model.hint')));
+  // --- step navigator ---
+  const stepDefs = [
+    {{ id: 0, label: 'wizard.step1' }},
+    {{ id: 1, label: 'wizard.step2' }},
+    {{ id: 2, label: 'wizard.step3' }},
+    {{ id: 3, label: 'wizard.step4' }},
+  ];
+  const nav = document.createElement('div');
+  nav.className = 'agent-steps';
+  stepDefs.forEach((s, i) => {{
+    if (i > 0) {{
+      const line = document.createElement('div');
+      line.className = 'agent-step-line' + (AGENT_STEP > i - 1 ? ' done' : '');
+      nav.appendChild(line);
+    }}
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'agent-step' + (AGENT_STEP === s.id ? ' active' : (AGENT_STEP > s.id ? ' done' : ''));
+    const circle = document.createElement('span');
+    circle.className = 'step-circle';
+    circle.textContent = AGENT_STEP > s.id ? '\u2713' : (s.id + 1);
+    const label = document.createElement('span');
+    label.className = 'step-label';
+    label.textContent = t(s.label);
+    btn.appendChild(circle);
+    btn.appendChild(label);
+    btn.addEventListener('click', () => {{ AGENT_STEP = s.id; renderAgentPane(); }});
+    nav.appendChild(btn);
+  }});
+  wrap.appendChild(nav);
+
+  // --- step description ---
+  const descEl = document.createElement('p');
+  descEl.className = 'step-desc';
+  descEl.textContent = t('wizard.step' + (AGENT_STEP + 1) + '.desc');
+  wrap.appendChild(descEl);
+
+  // --- step body ---
+  const body = document.createElement('div');
+  body.className = 'step-body';
+  if (AGENT_STEP === 0) {{
+    buildStepBasics(body, agent);
+  }} else if (!agent.cli_type) {{
+    // steps 2+ require a CLI type chosen first
+    const warn = document.createElement('div');
+    warn.style.cssText = 'padding:40px 20px;text-align:center;color:var(--text-muted);font-size:14px;';
+    warn.textContent = t('wizard.need_cli_first');
+    body.appendChild(warn);
+  }} else if (AGENT_STEP === 1) {{
+    buildStepConnection(body, agent);
+  }} else if (AGENT_STEP === 2) {{
+    buildStepModel(body, agent);
+  }} else if (AGENT_STEP === 3) {{
+    buildStepAdvanced(body, agent);
+  }}
+  wrap.appendChild(body);
+
+  // --- step footer ---
+  const footer = document.createElement('div');
+  footer.className = 'step-footer';
+
+  const prevBtn = document.createElement('button');
+  prevBtn.type = 'button';
+  prevBtn.className = 'secondary';
+  prevBtn.textContent = t('wizard.prev');
+  prevBtn.disabled = AGENT_STEP === 0;
+  prevBtn.style.visibility = AGENT_STEP === 0 ? 'hidden' : 'visible';
+  prevBtn.addEventListener('click', () => {{ if (AGENT_STEP > 0) {{ AGENT_STEP--; renderAgentPane(); }} }});
+  footer.appendChild(prevBtn);
+
+  const summary = document.createElement('div');
+  summary.className = 'step-summary';
+  summary.id = 'step-summary';
+  footer.appendChild(summary);
+  updateStepSummaryInto(summary, agent);
+
+  const nextBtn = document.createElement('button');
+  nextBtn.type = 'button';
+  const isLast = AGENT_STEP === 3;
+  nextBtn.textContent = isLast ? t('wizard.finish') : t('wizard.next');
+  nextBtn.addEventListener('click', () => {{
+    if (AGENT_STEP < 3) {{ AGENT_STEP++; renderAgentPane(); }}
+    else {{ AGENT_STEP = 0; renderAgentPane(); }}
+  }});
+  footer.appendChild(nextBtn);
+  wrap.appendChild(footer);
+
+  return wrap;
+}}
+
+function updateStepSummary() {{
+  const el = document.getElementById('step-summary');
+  if (!el || SELECTED_AGENT_INDEX == null) return;
+  const agent = CONFIG.agents[SELECTED_AGENT_INDEX];
+  if (agent) updateStepSummaryInto(el, agent);
+}}
+
+function updateStepSummaryInto(el, agent) {{
+  el.innerHTML = '';
+  const def = CLI_DEFS_BY_ID[agent.cli_type];
+  const tags = [];
+  // CLI tag
+  if (def) {{
+    tags.push(makeSumTag(t('wizard.summary.cli') + ': ' + def.label, false));
+  }}
+  // Auth tag
+  const authed = hasAuth(agent);
+  tags.push(makeSumTag(
+    t('wizard.summary.auth') + ': ' + (authed ? t('wizard.summary.configured') : t('wizard.summary.missing')),
+    !authed && !!agent.cli_type
+  ));
+  // Model tag
+  if (agent.cli_type) {{
+    const hasModel = !!(agent.model || (agent.env && agent.env.ANTHROPIC_MODEL) || (agent.env && agent.env.OPENCODE_PROVIDER_MODEL_ID));
+    tags.push(makeSumTag(
+      t('wizard.summary.model') + ': ' + (hasModel ? t('wizard.summary.configured') : t('wizard.summary.optional')),
+      false
+    ));
+  }}
+  tags.forEach(tag => el.appendChild(tag));
+}}
+
+function makeSumTag(text, warn) {{
+  const span = document.createElement('span');
+  span.className = 'sum-tag' + (warn ? ' warn' : '');
+  span.textContent = text;
+  return span;
+}}
+
+// ---- step 1: basics ----
+function buildStepBasics(host, agent) {{
+  host.appendChild(sectionTitle(t('agent.section.basic')));
+  const g = grid();
+  g.appendChild(field(t('agent.cli_type'), buildCliTypeSelect(agent), t('agent.cli_type.hint')));
+  g.appendChild(field(t('agent.name'), buildAgentNameField(agent), t('agent.name.hint')));
+  g.appendChild(field(t('agent.aliases'), buildTextarea(agent, 'aliases', {{ asLines: true }}), t('agent.aliases.hint')));
+  host.appendChild(g);
+}}
+
+function buildAgentNameField(agent) {{
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = agent.name || '';
+  input.placeholder = t('ph.agent_name');
+  input.addEventListener('input', () => {{
+    const previousSuggestedDir = suggestedConfigDir(agent);
+    agent.name = input.value.trim();
+    if (agent.config_dir === previousSuggestedDir) agent.config_dir = suggestedConfigDir(agent);
+    validateAgentName(agent, input);
+    refreshAgentList();
+    refreshMappingDropdowns();
+    refreshDefaultAgentDropdown();
+    updateStepSummary();
+  }});
+  return input;
+}}
+
+// ---- step 2: connection / auth ----
+function buildStepConnection(host, agent) {{
+  // system isolation first
+  const sysHost = document.createElement('div');
+  host.appendChild(sysHost);
+  buildSystemSection(sysHost, agent);
+  // env: auth + provider groups
+  const envHost = document.createElement('div');
+  host.appendChild(envHost);
+  buildEnvSection(envHost, agent, null, new Set(['auth', 'provider']));
+}}
+
+// ---- step 3: model & behavior ----
+function buildStepModel(host, agent) {{
+  host.appendChild(sectionTitle(t('agent.section.basic')));
+  const g = grid();
+  g.appendChild(field(t('agent.model'), buildModelField(agent), t('agent.model.hint')));
   if (supportsEffort(agent)) {{
-    basic.appendChild(field(t('agent.effort'), buildEffortField(agent), t('agent.effort.hint')));
+    g.appendChild(field(t('agent.effort'), buildEffortField(agent), t('agent.effort.hint')));
   }} else {{
     agent.effort = null;
   }}
-  wrap.appendChild(basic);
-
-  // --- section: command ---
-  wrap.appendChild(sectionTitle(t('agent.section.command'), '2'));
-  const cmd = grid();
-  cmd.appendChild(field(t('agent.command'), buildText(agent, 'command', {{ placeholder: t('ph.command') }})));
-  cmd.appendChild(field(t('agent.path'), buildText(agent, 'path')));
-  wrap.appendChild(cmd);
-
-  // --- section: CLI system isolation ---
-  const systemHost = document.createElement('div');
-  wrap.appendChild(systemHost);
-  buildSystemSection(systemHost, agent, '3');
-
-  // --- section: env ---
+  host.appendChild(g);
+  // env: model + behavior groups
   const envHost = document.createElement('div');
-  wrap.appendChild(envHost);
-  buildEnvSection(envHost, agent, '4');
+  host.appendChild(envHost);
+  buildEnvSection(envHost, agent, null, new Set(['model', 'behavior']));
+}}
 
-  // --- section: advanced ---
-  const advWrap = document.createElement('details');
-  advWrap.style.cssText = 'margin-top:32px;padding:0;border:1px solid var(--border);border-radius:12px;background:var(--surface-alt);';
-  const advSummary = document.createElement('summary');
-  advSummary.style.cssText = 'cursor:pointer;padding:14px 16px;font-weight:600;font-size:14px;color:var(--text);';
-  advSummary.textContent = t('agent.section.advanced');
-  advWrap.appendChild(advSummary);
-  const advBody = document.createElement('div');
-  advBody.style.cssText = 'padding:20px;border-top:1px solid var(--border);background:var(--surface);border-radius:0 0 12px 12px;';
+// ---- step 4: advanced ----
+function buildStepAdvanced(host, agent) {{
+  // executable
+  host.appendChild(sectionTitle(t('agent.section.command')));
+  const cmd = grid();
+  cmd.appendChild(field(t('agent.command'), buildText(agent, 'command', {{ placeholder: t('ph.command') }}), t('agent.command.hint')));
+  cmd.appendChild(field(t('agent.path'), buildText(agent, 'path'), t('agent.path.hint')));
+  host.appendChild(cmd);
+
+  // env mode + allowlist (already partly in system section, but here we show the mode explicitly)
+  host.appendChild(sectionTitle(t('agent.section.advanced')));
   const adv = grid();
-  adv.appendChild(field(t('agent.default_timeout'), buildText(agent, 'default_timeout')));
+  adv.appendChild(field(t('agent.env_mode'), buildSelect(agent, 'env_mode', [
+    {{ value: 'inherit', label: t('agent.env_mode.inherit') }},
+    {{ value: 'strict', label: t('agent.env_mode.strict') }},
+  ]), t('agent.env_mode.hint')));
+  adv.appendChild(field(t('agent.env_allowlist'), buildTextarea(agent, 'env_allowlist', {{ asLines: true }}), t('agent.env_allowlist.hint')));
+  adv.appendChild(field(t('agent.default_timeout'), buildText(agent, 'default_timeout'), t('agent.default_timeout.hint')));
   adv.appendChild(field(t('agent.args_strategy'), buildSelect(agent, 'args_strategy', [
     {{ value: 'builtin', label: t('agent.args_strategy.builtin') }},
     {{ value: 'append', label: t('agent.args_strategy.append') }},
     {{ value: 'override', label: t('agent.args_strategy.override') }},
-  ])));
+  ]), t('agent.args_strategy.hint')));
   adv.appendChild(field(t('agent.prompt_via'), buildSelect(agent, 'prompt_via', [
     {{ value: '', label: t('agent.prompt_via.default') }},
     {{ value: 'stdin', label: t('agent.prompt_via.stdin') }},
@@ -2368,26 +2730,27 @@ function buildAgentEditor(agent) {{
     {{ value: 'file', label: t('agent.prompt_via.file') }},
     {{ value: 'file-indirection', label: t('agent.prompt_via.file_indirection') }},
     {{ value: 'arg-or-file-indirection', label: t('agent.prompt_via.arg_or_file_indirection') }},
-  ])));
+  ]), t('agent.prompt_via.hint')));
   const fullArgs = document.createElement('div');
   fullArgs.style.gridColumn = '1 / -1';
-  fullArgs.appendChild(field(t('agent.args'), buildTextarea(agent, 'args', {{ asLines: true }})));
+  fullArgs.appendChild(field(t('agent.args'), buildTextarea(agent, 'args', {{ asLines: true }}), t('agent.args.hint')));
   adv.appendChild(fullArgs);
   const fullExtra = document.createElement('div');
   fullExtra.style.gridColumn = '1 / -1';
-  fullExtra.appendChild(field(t('agent.extra_args'), buildTextarea(agent, 'extra_args', {{ asLines: true }})));
+  fullExtra.appendChild(field(t('agent.extra_args'), buildTextarea(agent, 'extra_args', {{ asLines: true }}), t('agent.extra_args.hint')));
   adv.appendChild(fullExtra);
-  adv.appendChild(field(t('agent.interactive_args'), buildTextarea(agent, 'interactive_args', {{ asLines: true }})));
-  adv.appendChild(field(t('agent.non_interactive_args'), buildTextarea(agent, 'non_interactive_args', {{ asLines: true }})));
+  adv.appendChild(field(t('agent.interactive_args'), buildTextarea(agent, 'interactive_args', {{ asLines: true }}), t('agent.interactive_args.hint')));
+  adv.appendChild(field(t('agent.non_interactive_args'), buildTextarea(agent, 'non_interactive_args', {{ asLines: true }}), t('agent.non_interactive_args.hint')));
   const fullResume = document.createElement('div');
   fullResume.style.gridColumn = '1 / -1';
-  fullResume.appendChild(field(t('agent.resume_args'), buildTextarea(agent, 'resume_args', {{ asLines: true }})));
+  fullResume.appendChild(field(t('agent.resume_args'), buildTextarea(agent, 'resume_args', {{ asLines: true }}), t('agent.resume_args.hint')));
   adv.appendChild(fullResume);
-  advBody.appendChild(adv);
-  advWrap.appendChild(advBody);
-  wrap.appendChild(advWrap);
+  host.appendChild(adv);
 
-  return wrap;
+  // env: optional / options / other groups + extra env
+  const envHost = document.createElement('div');
+  host.appendChild(envHost);
+  buildEnvSection(envHost, agent, null, new Set(['optional', 'options', 'other']));
 }}
 
 function sectionTitle(text, stepNum = null) {{
@@ -2497,6 +2860,15 @@ function supportsEffort(agent) {{
   return !!(def && def.supports_effort);
 }}
 
+function validateAgentName(agent, input) {{
+  const name = agent.name;
+  let bad = false;
+  if (!name) bad = true;
+  else if (CONFIG.agents.some(a => a !== agent && a.name === name)) bad = true;
+  input.classList.toggle('invalid', bad);
+  input.title = bad ? (LANG === 'en' ? 'Name is empty or duplicate' : '名称为空或已存在') : '';
+}}
+
 const DEFAULT_ENV_ALLOWLIST = [
   'HTTP_PROXY',
   'HTTPS_PROXY',
@@ -2532,17 +2904,12 @@ function buildSystemSection(host, agent, stepNum = null) {{
     agent.env_mode = 'strict';
     mergeEnvAllowlist(agent, strictModeAllowlist());
     renderAgentPane();
+    markDirty();
   }});
   dirActions.appendChild(suggested);
   dirActions.appendChild(useSuggested);
   dirWrap.appendChild(dirActions);
   g.appendChild(dirWrap);
-
-  g.appendChild(field(t('agent.env_mode'), buildSelect(agent, 'env_mode', [
-    {{ value: 'inherit', label: t('agent.env_mode.inherit') }},
-    {{ value: 'strict', label: t('agent.env_mode.strict') }},
-  ])));
-  g.appendChild(field(t('agent.env_allowlist'), buildTextarea(agent, 'env_allowlist', {{ asLines: true }})));
   host.appendChild(g);
 
   const note = document.createElement('div');
@@ -2617,7 +2984,7 @@ function mergeEnvAllowlist(agent, keys) {{
   agent.env_allowlist = next;
 }}
 
-function buildEnvSection(host, agent, stepNum = null) {{
+function buildEnvSection(host, agent, stepNum = null, groupFilter = null) {{
   host.innerHTML = '';
   host.appendChild(sectionTitle(t('agent.section.env'), stepNum));
   const def = CLI_DEFS_BY_ID[agent.cli_type];
@@ -2636,7 +3003,9 @@ function buildEnvSection(host, agent, stepNum = null) {{
     hint.textContent = t('agent.no_cli');
     host.appendChild(hint);
   }} else {{
-    if (detected && (detected.model || (supportsEffort(agent) && detected.effort))) {{
+    // "use detected model/effort" only makes sense in the model step
+    const showModelEffortBtn = !groupFilter || groupFilter.has('model') || groupFilter.has('behavior');
+    if (showModelEffortBtn && detected && (detected.model || (supportsEffort(agent) && detected.effort))) {{
       const useDetectedRun = document.createElement('button');
       useDetectedRun.type = 'button';
       useDetectedRun.className = 'secondary small';
@@ -2646,94 +3015,67 @@ function buildEnvSection(host, agent, stepNum = null) {{
         if (detected.model) agent.model = detected.model;
         if (supportsEffort(agent) && detected.effort) agent.effort = detected.effort;
         renderAgentPane();
+        markDirty();
       }});
       host.appendChild(useDetectedRun);
     }}
 
-    const groups = [];
-    const groupMap = {{}};
-    for (const meta of def.env) {{
-      const gid = meta.group || 'other';
-      if (!groupMap[gid]) {{
-        groupMap[gid] = [];
-        groups.push(gid);
+    // collect fields matching the group filter
+    const allFields = def.env.filter(m => !groupFilter || groupFilter.has(m.group || 'other'));
+    const isCompact = groupFilter && groupFilter.has('auth');
+    const primaryFields = isCompact ? allFields.filter(m => m.primary) : [];
+    const secondaryFields = isCompact ? allFields.filter(m => !m.primary) : allFields;
+
+    if (isCompact && primaryFields.length > 0) {{
+      // flat grid for core fields (API key + base URL)
+      const g = grid();
+      for (const meta of primaryFields) {{
+        g.appendChild(buildEnvFieldCard(agent, meta, detected));
       }}
-      groupMap[gid].push(meta);
+      host.appendChild(g);
     }}
 
-    groups.forEach((gid, idx) => {{
-      const fields = groupMap[gid];
-      const details = document.createElement('details');
-      details.className = 'env-group';
-      if (idx === 0) details.open = true;
-
-      const summary = document.createElement('summary');
-      summary.textContent = t('env_group.' + gid);
-      const filledCount = fields.filter(m => agent.env && agent.env[m.key]).length;
-      if (filledCount > 0) {{
-        const badge = document.createElement('span');
-        badge.style.cssText = 'font-size:11px;background:var(--primary-soft);color:var(--primary-hover);padding:1px 8px;border-radius:999px;font-weight:700;margin-left:auto;';
-        badge.textContent = filledCount + '/' + fields.length;
-        summary.appendChild(badge);
+    if (secondaryFields.length > 0) {{
+      // group secondary fields by their original group
+      const groups = [];
+      const groupMap = {{}};
+      for (const meta of secondaryFields) {{
+        const gid = meta.group || 'other';
+        if (!groupMap[gid]) {{ groupMap[gid] = []; groups.push(gid); }}
+        groupMap[gid].push(meta);
       }}
-      details.appendChild(summary);
 
-      const body = document.createElement('div');
-      body.className = 'env-group-body';
-
-      for (const meta of fields) {{
-        const wrapper = document.createElement('div');
-        wrapper.className = 'env-field';
-        const labelRow = document.createElement('div');
-        labelRow.className = 'env-field-label';
-        const lab = document.createElement('label');
-        lab.style.margin = '0';
-        lab.textContent = LANG === 'en' ? (meta.label_en || meta.key) : (meta.label_zh || meta.key);
-        const keyBadge = document.createElement('span');
-        keyBadge.className = 'env-key';
-        keyBadge.textContent = meta.key;
-        labelRow.appendChild(lab);
-        labelRow.appendChild(keyBadge);
-        wrapper.appendChild(labelRow);
-        const ctrl = buildEnvField(agent, meta);
-        wrapper.appendChild(ctrl);
-        const desc = LANG === 'en' ? meta.desc_en : meta.desc_zh;
-        if (desc) {{
-          const hint = document.createElement('div');
-          hint.className = 'field-hint';
-          hint.textContent = desc;
-          wrapper.appendChild(hint);
+      groups.forEach((gid, idx) => {{
+        const fields = groupMap[gid];
+        const details = document.createElement('details');
+        details.className = 'env-group';
+        if (!isCompact && idx === 0) details.open = true;
+        const summaryLabel = isCompact ? t('env_group.more') : t('env_group.' + gid);
+        const summary = document.createElement('summary');
+        summary.textContent = summaryLabel;
+        const filledCount = fields.filter(m => agent.env && agent.env[m.key]).length;
+        if (filledCount > 0) {{
+          const badge = document.createElement('span');
+          badge.style.cssText = 'font-size:11px;background:var(--primary-soft);color:var(--primary-hover);padding:1px 8px;border-radius:999px;font-weight:700;margin-left:auto;';
+          badge.textContent = filledCount + '/' + fields.length;
+          summary.appendChild(badge);
         }}
-        const detectedValue = detected && detected.env ? detected.env[meta.key] : null;
-        if (detectedValue) {{
-          const detectedHint = document.createElement('div');
-          detectedHint.className = 'field-hint';
-          detectedHint.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:4px;color:var(--text-muted);';
-          const label = document.createElement('span');
-          label.textContent = t('agent.env.detected_label') + ': ';
-          const code = document.createElement('code');
-          code.textContent = meta.secret ? maskSecret(detectedValue) : detectedValue;
-          const useBtn = document.createElement('button');
-          useBtn.type = 'button';
-          useBtn.className = 'ghost small';
-          useBtn.textContent = t('action.use_detected');
-          useBtn.addEventListener('click', () => {{
-            if (!agent.env) agent.env = {{}};
-            agent.env[meta.key] = detectedValue;
-            renderAgentPane();
-          }});
-          detectedHint.appendChild(label);
-          detectedHint.appendChild(code);
-          detectedHint.appendChild(useBtn);
-          wrapper.appendChild(detectedHint);
-        }}
-        body.appendChild(wrapper);
-      }}
-      details.appendChild(body);
-      host.appendChild(details);
-    }});
+        details.appendChild(summary);
 
-    if (detected && detected.env && Object.keys(detected.env).length > 0) {{
+        const body = document.createElement('div');
+        body.className = 'env-group-body';
+
+        for (const meta of fields) {{
+          body.appendChild(buildEnvFieldCard(agent, meta, detected));
+        }}
+        details.appendChild(body);
+        host.appendChild(details);
+      }});
+    }}
+
+    // "use all detected" — only show in connection (auth) step or when no filter
+    const showUseAll = !groupFilter || groupFilter.has('auth') || groupFilter.has('provider');
+    if (showUseAll && detected && detected.env && Object.keys(detected.env).length > 0) {{
       const useAll = document.createElement('button');
       useAll.type = 'button';
       useAll.className = 'secondary small';
@@ -2742,43 +3084,98 @@ function buildEnvSection(host, agent, stepNum = null) {{
       useAll.addEventListener('click', () => {{
         if (!agent.env) agent.env = {{}};
         for (const meta of def.env) {{
+          if (groupFilter && !groupFilter.has(meta.group || 'other')) continue;
           const v = detected.env[meta.key];
           if (v) agent.env[meta.key] = v;
         }}
         renderAgentPane();
+        markDirty();
       }});
       host.appendChild(useAll);
     }}
   }}
 
-  // Other env (KEY=VALUE per line) — excludes the structured ones
-  host.appendChild(sectionTitle(t('agent.section.env_extra')));
-  const knownKeys = new Set(def ? def.env.map(m => m.key) : []);
-  const extraText = Object.entries(agent.env || {{}})
-    .filter(([k]) => !knownKeys.has(k))
-    .map(([k, v]) => k + '=' + v)
-    .join('\n');
-  const ta = document.createElement('textarea');
-  ta.value = extraText;
-  ta.style.minHeight = '90px';
-  ta.placeholder = 'PATH=/usr/bin\nDEBUG=1';
-  ta.addEventListener('input', () => {{
-    const known = new Set(def ? def.env.map(m => m.key) : []);
-    const next = {{}};
-    for (const [k, v] of Object.entries(agent.env || {{}})) {{
-      if (known.has(k)) next[k] = v;
-    }}
-    for (const line of lines(ta.value)) {{
-      const idx = line.indexOf('=');
-      if (idx > 0) next[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
-    }}
-    agent.env = next;
-  }});
-  host.appendChild(ta);
-  const hint = document.createElement('div');
-  hint.className = 'field-hint';
-  hint.textContent = t('agent.env_extra');
-  host.appendChild(hint);
+  // Other env (KEY=VALUE per line) — only in advanced step (no filter or 'other' in filter)
+  const showExtra = !groupFilter || groupFilter.has('other');
+  if (showExtra) {{
+    host.appendChild(sectionTitle(t('agent.section.env_extra')));
+    const knownKeys = new Set(def ? def.env.map(m => m.key) : []);
+    const extraText = Object.entries(agent.env || {{}})
+      .filter(([k]) => !knownKeys.has(k))
+      .map(([k, v]) => k + '=' + v)
+      .join('\n');
+    const ta = document.createElement('textarea');
+    ta.value = extraText;
+    ta.style.minHeight = '90px';
+    ta.placeholder = 'PATH=/usr/bin\nDEBUG=1';
+    ta.addEventListener('input', () => {{
+      const known = new Set(def ? def.env.map(m => m.key) : []);
+      const next = {{}};
+      for (const [k, v] of Object.entries(agent.env || {{}})) {{
+        if (known.has(k)) next[k] = v;
+      }}
+      for (const line of lines(ta.value)) {{
+        const idx = line.indexOf('=');
+        if (idx > 0) next[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+      }}
+      agent.env = next;
+    }});
+    host.appendChild(ta);
+    const hint = document.createElement('div');
+    hint.className = 'field-hint';
+    hint.textContent = t('agent.env_extra');
+    host.appendChild(hint);
+  }}
+}}
+
+function buildEnvFieldCard(agent, meta, detected) {{
+  const wrapper = document.createElement('div');
+  wrapper.className = 'env-field';
+  const labelRow = document.createElement('div');
+  labelRow.className = 'env-field-label';
+  const lab = document.createElement('label');
+  lab.style.margin = '0';
+  lab.textContent = LANG === 'en' ? (meta.label_en || meta.key) : (meta.label_zh || meta.key);
+  labelRow.appendChild(lab);
+  wrapper.appendChild(labelRow);
+  const ctrl = buildEnvField(agent, meta);
+  // forward env-key name into the input as a subtle placeholder (no separate badge)
+  const setPlaceholder = (el) => {{ if (el && el.tagName === 'INPUT' && !el.placeholder) el.placeholder = meta.key; }};
+  if (ctrl.tagName === 'DIV') {{ ctrl.querySelectorAll('input').forEach(setPlaceholder); }}
+  else {{ setPlaceholder(ctrl); }}
+  wrapper.appendChild(ctrl);
+  const desc = LANG === 'en' ? meta.desc_en : meta.desc_zh;
+  if (desc) {{
+    const hint = document.createElement('div');
+    hint.className = 'field-hint';
+    hint.textContent = desc;
+    wrapper.appendChild(hint);
+  }}
+  const detectedValue = detected && detected.env ? detected.env[meta.key] : null;
+  if (detectedValue) {{
+    const detectedHint = document.createElement('div');
+    detectedHint.className = 'field-hint';
+    detectedHint.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:4px;color:var(--text-muted);';
+    const label = document.createElement('span');
+    label.textContent = t('agent.env.detected_label') + ': ';
+    const code = document.createElement('code');
+    code.textContent = meta.secret ? maskSecret(detectedValue) : detectedValue;
+    const useBtn = document.createElement('button');
+    useBtn.type = 'button';
+    useBtn.className = 'ghost small';
+    useBtn.textContent = t('action.use_detected');
+    useBtn.addEventListener('click', () => {{
+      if (!agent.env) agent.env = {{}};
+      agent.env[meta.key] = detectedValue;
+      renderAgentPane();
+      markDirty();
+    }});
+    detectedHint.appendChild(label);
+    detectedHint.appendChild(code);
+    detectedHint.appendChild(useBtn);
+    wrapper.appendChild(detectedHint);
+  }}
+  return wrapper;
 }}
 
 function maskSecret(value) {{
@@ -2879,11 +3276,13 @@ function addNewAgent() {{
   fresh.config_dir = suggestedConfigDir(fresh);
   CONFIG.agents.push(fresh);
   SELECTED_AGENT_INDEX = CONFIG.agents.length - 1;
+  AGENT_STEP = 0;
   refreshAgentList();
   refreshMappingDropdowns();
   refreshDefaultAgentDropdown();
   renderAgentPane();
   updateAgentCount();
+  markDirty();
   document.querySelector('.tab[data-tab="agents"]').click();
   setTimeout(() => {{
     const input = document.querySelector('#agent-pane input[type=text]');
@@ -3083,6 +3482,8 @@ function renderAll() {{
   refreshAgentList();
   renderAgentPane();
   updateAgentCount();
+  const onb = document.getElementById('agents-onboarding');
+  if (onb) onb.style.display = CONFIG.agents.length ? 'none' : '';
   renderMetadata();
 }}
 
@@ -3168,6 +3569,7 @@ async function doReload() {{
     if (!r.ok) {{ setStatus(t('msg.reload_failed'), true); return; }}
     const fresh = await r.json();
     mergeConfig(fresh);
+    clearDirty();
     setStatus(t('msg.reloaded'));
   }} catch (e) {{ setStatus(t('msg.reload_failed_e') + e.message, true); }}
 }}
@@ -3193,9 +3595,20 @@ document.getElementById('stop-btn').addEventListener('click', async () => {{
   setStatus(t('msg.stopped'));
 }});
 
-document.getElementById('preview-btn').addEventListener('click', () => {{
-  document.getElementById('preview-text').textContent = JSON.stringify(collectConfig(), null, 2);
-  document.getElementById('preview-dialog').showModal();
+document.getElementById('preview-btn').addEventListener('click', async () => {{
+  const cfg = await configFromActiveEditor();
+  if (!cfg) return;
+  try {{
+    const r = await fetch('/api/toml-preview', {{
+      method: 'POST',
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify(cfg)
+    }});
+    const text = await r.text();
+    if (!r.ok) {{ setStatus(text, true); return; }}
+    document.getElementById('preview-text').textContent = text;
+    document.getElementById('preview-dialog').showModal();
+  }} catch (e) {{ setStatus(e.message, true); }}
 }});
 
 document.getElementById('default-agent').addEventListener('change', e => {{
@@ -3224,9 +3637,24 @@ document.getElementById('proxy-env-keys').addEventListener('input', e => {{
 document.getElementById('sync-to-form-btn').addEventListener('click', syncToForm);
 document.getElementById('sync-from-form-btn').addEventListener('click', () => syncFromForm(false));
 
+// Track unsaved form changes via event delegation on <main>.
+document.querySelector('main').addEventListener('input', markDirty);
+document.querySelector('main').addEventListener('change', markDirty);
+// Ctrl/Cmd+S to save.
+document.addEventListener('keydown', e => {{
+  if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {{
+    e.preventDefault();
+    document.getElementById('save-btn').click();
+  }}
+}});
+// Warn before leaving with unsaved changes.
+window.addEventListener('beforeunload', e => {{
+  if (DIRTY) {{ e.preventDefault(); e.returnValue = ''; }}
+}});
+
 applyTheme();
-renderAll();
 applyI18n();
+renderAll();
 </script>
 </body>
 </html>

@@ -173,7 +173,7 @@ occ run --cli codex --cwd "E:\project\repo"
 
 这适合其它 AI agent 和自动化脚本。需要实时观察子进程输出时，加 `--stream`，它会把子进程 stdout/stderr 镜像到父进程 stderr，同时保留日志和最终 JSON stdout。多 agent 模式下，实时输出会自动按 agent 加前缀，便于同时观察。
 
-默认不要加 `--timeout`。有些 CLI 和模型响应很慢，只有确实需要硬性执行上限时才设置超时。
+默认不要加 `--timeout`。有些 CLI 和模型响应很慢，只有确实需要硬性执行上限时才设置超时；若要设置，请至少给 `10m`——更短的超时会被提升到 10 分钟，避免在 session 落盘前杀掉进程导致无法恢复。
 
 显式前台交互模式：
 

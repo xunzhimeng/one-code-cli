@@ -539,6 +539,10 @@ fn execute_run_with_prompt(
         .map_err(|error| write_prompt_error(&paths.prompt_md, error))?;
     let started_at = Utc::now();
     let timeout = parse_timeout(timeout_value.as_deref())?;
+    // Persist the session id (and backend session id, if any) BEFORE launching the
+    // child process. If the child or this process is later killed by a timeout or
+    // signal, the session is already on disk so `occ resume` still works.
+    session::save(&session_record)?;
     let child = if interactive {
         execute_interactive(&plan, timeout)?
     } else {
@@ -1448,6 +1452,10 @@ fn normalize_timeout_value(value: &str) -> Option<String> {
     }
 }
 
+/// The run timeout is passed through verbatim: if a user (or agent) explicitly
+/// asks for `60s`, occ honours it instead of silently rewriting the value.
+/// Short timeouts are discouraged via the skill/README guidance, not by mutating
+/// user input here.
 fn parse_timeout(value: Option<&str>) -> OccResult<Option<Duration>> {
     let Some(value) = value else {
         return Ok(None);
@@ -1623,4 +1631,35 @@ fn print_dry_run(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn parse_timeout_returns_none_when_absent_or_empty() {
+        assert!(parse_timeout(None).unwrap().is_none());
+        assert!(parse_timeout(Some("")).unwrap().is_none());
+        assert!(parse_timeout(Some("   ")).unwrap().is_none());
+    }
+
+    #[test]
+    fn parse_timeout_passes_through_user_value_verbatim() {
+        // occ honours whatever timeout the user asks for without rewriting it;
+        // short timeouts are discouraged via guidance, not by mutating input.
+        assert_eq!(
+            parse_timeout(Some("30s")).unwrap(),
+            Some(Duration::from_secs(30))
+        );
+        assert_eq!(
+            parse_timeout(Some("5m")).unwrap(),
+            Some(Duration::from_secs(5 * 60))
+        );
+        assert_eq!(
+            parse_timeout(Some("500ms")).unwrap(),
+            Some(Duration::from_millis(500))
+        );
+    }
 }
