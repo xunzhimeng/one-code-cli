@@ -57,7 +57,7 @@ Use this when agent/CLI selection is unclear, `occ` failed, config may be stale,
 - Prefer normal blocking execution from shell tools: start `occ run`, wait for it to complete, then read the JSON result. Avoid backgrounding delegated CLIs unless the user asks.
 - Use non-interactive execution when the task needs automation or the user accepts that the child CLI TUI will not be visible.
 - For supervised non-interactive runs, pass `--stream` so child stdout/stderr is mirrored to parent stderr while JSON remains on stdout.
-- By default, do not add `--timeout`; some CLIs and models are slow, and failures usually exit on their own. Add a timeout only when the user or project requires a hard limit, and never set it below 10 minutes (`10m`). `occ` enforces a 10-minute floor regardless, because a shorter timeout can kill the process before its session id is persisted, making resume impossible.
+- By default, do not add `--timeout`; some CLIs and models are slow, and failures usually exit on their own. Add a timeout only when the user or project requires a hard limit. If you set one, prefer at least `10m` so long tasks have time to finish. `occ` passes the value through verbatim — it does not raise a short timeout — so a too-small cap will cut the run short. Resume still works after a kill because `occ` persists the session id before launching the worker.
 - Do not terminate a child process only because stdout is quiet. Some CLIs buffer output until completion.
 
 ### Shell execution guidance
@@ -109,7 +109,7 @@ occ run --cli claude --cwd <cwd> --prompt "<task prompt>" --non-interactive --st
 
 The same pattern works with `--model <model>` and `--effort <level>` when the caller specifies a model or reasoning level. Do not copy example model names into real commands unless they were requested.
 
-Add `--timeout <duration>` only when a hard execution cap is needed, and use at least `10m` — shorter values are raised to 10 minutes and can interrupt work before resume is possible.
+Add `--timeout <duration>` only when a hard execution cap is needed, and prefer at least `10m`. `occ` honours the value verbatim, so a short cap will cut the run short — though resume still works, since the session is persisted up front.
 
 Dry-run only when command construction needs inspection and execution is not desired:
 
